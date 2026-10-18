@@ -40,7 +40,7 @@
 
 ## 安装
 
-**Chrome 应用商店**：审核中，上架后会在这里补上链接。
+**Chrome 应用商店**：[安装 Representer](https://chromewebstore.google.com/detail/gdjkleekcdighnbiaihpmoimgcjhecch)。
 
 **从源码安装**：
 

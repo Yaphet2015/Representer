@@ -40,7 +40,7 @@ English · [简体中文](./README.zh-CN.md)
 
 ## Install
 
-**Chrome Web Store**: coming soon. The listing is under review, and the link will be added here once it is published.
+**Chrome Web Store**: [install Representer](https://chromewebstore.google.com/detail/gdjkleekcdighnbiaihpmoimgcjhecch).
 
 **From source**:
 
