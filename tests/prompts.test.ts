@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chatSystem, summaryInstructions, withUserPrompt } from '../lib/prompts';
 
 const summary = { overview: 'o', keyTerms: [], sections: [] };
+const longPage = 'English page text. '.repeat(3000);
 
 describe('custom system prompt', () => {
   it('empty or blank custom text leaves the built-in prompt unchanged', () => {
@@ -9,20 +10,22 @@ describe('custom system prompt', () => {
     expect(summaryInstructions('en', '   ')).toBe(summaryInstructions('en'));
     expect(chatSystem('T', summary, 'c', undefined)).toBe(chatSystem('T', summary, 'c'));
   });
-  it('appends custom text after the built-in summary rules, keeping the JSON contract first', () => {
-    const p = summaryInstructions('en', 'Always answer in a pirate tone');
-    const base = summaryInstructions('en');
-    expect(p.startsWith(base)).toBe(true);
+  it('summary: keeps the JSON contract and lets the user override the reply language', () => {
+    const p = summaryInstructions('en', '请用中文回答');
     expect(p).toContain('Reply with ONLY a JSON object');
-    expect(p).toMatch(/JSON format above is mandatory/);
-    expect(p.trimEnd().endsWith('Always answer in a pirate tone')).toBe(true);
+    expect(p).toMatch(/unless the user's instructions ask for another language/);
+    expect(p).toMatch(/Only the JSON format is mandatory/);
+    expect(p.split('请用中文回答').length - 1).toBe(2);
+    expect(p.trimEnd().endsWith('</user_instructions>')).toBe(true);
   });
-  it('appends custom text to the chat system prompt', () => {
-    const p = chatSystem('T', summary, 'page', '  Be brief.  ');
-    expect(p.startsWith(chatSystem('T', summary, 'page'))).toBe(true);
-    expect(p.endsWith('Be brief.')).toBe(true);
+  it('chat: user instructions come before the page content and again at the very end', () => {
+    const p = chatSystem('T', summary, longPage, '  请用中文回答  ');
+    const page = p.indexOf('<page_content>');
+    expect(p.indexOf('请用中文回答')).toBeLessThan(page);
+    expect(p.lastIndexOf('请用中文回答')).toBeGreaterThan(p.indexOf('</page_content>'));
+    expect(p.trimEnd().endsWith('</user_instructions>')).toBe(true);
   });
-  it('withUserPrompt joins with the note', () => {
-    expect(withUserPrompt('A', 'B', 'N:')).toBe('A\n\nN:\nB');
+  it('withUserPrompt wraps the text in tags after the note', () => {
+    expect(withUserPrompt('A', 'B', 'N:')).toBe('A\n\nN:\n<user_instructions>\nB\n</user_instructions>');
   });
 });
