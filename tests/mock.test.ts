@@ -22,6 +22,18 @@ describe('mock provider', () => {
     for (const t of s.keyTerms) expect(s.overview).toContain(t);
     expect(buildMockSummary('X').sections.every((x) => x.bullets.length >= 2)).toBe(true);
   });
+  it('adds verbatim page excerpts as quotes when given the page content', () => {
+    const md = '# Title\n\n## History\n\n' + Array.from({ length: 6 }, (_, i) => `Paragraph ${i} talks about [printing](https://x.y) and **movable type** in some depth here.`).join('\n\n');
+    const s = buildMockSummary('T', 'en', md);
+    expect(isSummary(s)).toBe(true);
+    const plain = md.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*/g, '');
+    for (const sec of s.sections) {
+      expect(sec.quote).toBe('History');
+      expect(sec.quotes).toHaveLength(sec.bullets.length);
+      for (const q of sec.quotes!) expect(plain).toContain(q);
+    }
+    expect(buildMockSummary('T', 'en').sections[0]!.quotes).toBeUndefined();
+  });
   it('streams the reply token by token', async () => {
     const parts: string[] = [];
     const out = await mockStream('hi', (d) => parts.push(d), undefined, 0);

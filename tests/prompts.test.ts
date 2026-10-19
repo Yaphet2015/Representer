@@ -29,3 +29,12 @@ describe('custom system prompt', () => {
     expect(withUserPrompt('A', 'B', 'N:')).toBe('A\n\nN:\n<user_instructions>\nB\n</user_instructions>');
   });
 });
+
+describe('summary contract', () => {
+  it('asks for verbatim, untranslated page quotes on titles and bullets', () => {
+    const p = summaryInstructions('zh-CN');
+    expect(p).toContain('"bullets": [{"text": string, "quote": string}]');
+    expect(p).toMatch(/copied character for character/);
+    expect(p).toMatch(/never translated/);
+  });
+});

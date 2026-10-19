@@ -12,7 +12,7 @@ export const uiLanguage = (): string => (typeof chrome !== 'undefined' && chrome
 const zh = {
   // overlay
   tabOverview: '概览', tabChat: '对话', overview: '概览',
-  resummarize: '重新总结', summarizing: '总结中…', summarizingLabel: '正在总结', updated: '已更新',
+  jumpToSource: '在网页中定位', resummarize: '重新总结', summarizing: '总结中…', summarizingLabel: '正在总结', updated: '已更新',
   minimize: '最小化', restore: '还原', clickToRestore: '点击还原', close: '关闭',
   resizeHandle: '拖动调整宽度，双击恢复默认',
   summaryFailed: (e: string) => `总结失败：${e}`, retry: '重试',
@@ -64,7 +64,7 @@ export type Messages = typeof zh;
 
 const en: Messages = {
   tabOverview: 'Overview', tabChat: 'Chat', overview: 'Overview',
-  resummarize: 'Re-summarize', summarizing: 'Summarizing…', summarizingLabel: 'Summarizing', updated: 'Updated',
+  jumpToSource: 'Show in page', resummarize: 'Re-summarize', summarizing: 'Summarizing…', summarizingLabel: 'Summarizing', updated: 'Updated',
   minimize: 'Minimize', restore: 'Restore', clickToRestore: 'Click to restore', close: 'Close',
   resizeHandle: 'Drag to resize, double-click to reset',
   summaryFailed: (e) => `Summary failed: ${e}`, retry: 'Retry',
