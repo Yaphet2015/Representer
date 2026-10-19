@@ -38,7 +38,9 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount }: { url
     const onSel = () => { const t = window.getSelection()?.toString().trim(); if (t) lastSelection.current = t; };
     document.addEventListener('selectionchange', onSel); return () => document.removeEventListener('selectionchange', onSel);
   }, []);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [messages.length, messages[messages.length - 1]?.content]);
+  // Scroll the list itself to the very bottom: scrollIntoView on the end marker would stop short of the
+  // bottom padding, leaving the last message under the floating skills row. Also re-run on session switch/fork.
+  useEffect(() => { const el = end.current?.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [sid, messages.length, messages[messages.length - 1]?.content]);
 
   const patchMessages = (id: string, f: (m: ChatMessage[]) => ChatMessage[]) =>
     setState((s) => s && { ...s, sessions: s.sessions.map((x) => (x.id === id ? { ...x, messages: f(x.messages) } : x)) });
