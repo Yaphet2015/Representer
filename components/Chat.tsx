@@ -50,6 +50,7 @@ export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pag
     port.onMessage.addListener((msg: ChatEvent) => {
       if ('delta' in msg) patch((s) => s + msg.delta);
       else {
+        if ('done' in msg && msg.text) { const full = msg.text; patch(() => full); }
         if ('error' in msg) { const err = msg.error; patch((s) => s + (s ? '\n\n' : '') + '⚠️ ' + err); }
         setBusy(false); port.disconnect();
       }

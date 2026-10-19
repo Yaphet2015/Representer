@@ -35,4 +35,4 @@ export async function rpc<K extends MsgType>(type: K, req: Api[K]['req']): Promi
 /** Streaming chat over a long-lived port. */
 export const CHAT_PORT = 'chat';
 export interface ChatRequest { url: string; text: string; sid: string; label?: string }
-export type ChatEvent = { delta: string } | { done: true } | { error: string };
+export type ChatEvent = { delta: string } | { done: true; text?: string } | { error: string };

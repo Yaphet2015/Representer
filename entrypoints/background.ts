@@ -71,7 +71,7 @@ export default defineBackground(() => {
         const out = await providerFor(s, lang).chat(c, history, text, (delta) => post({ delta }), ac.signal);
         const userMsg: ChatMessage = label ? { role: 'user', content: text, label } : { role: 'user', content: text };
         await cache.updateSessions(url, (s) => appendMessages(s, sid, [userMsg, { role: 'assistant', content: out }]));
-        post({ done: true });
+        post({ done: true, text: out }); // full answer is authoritative: streamed deltas can miss the first chunk
       } catch (e: any) {
         post({ error: String(e?.message ?? e) });
       }
