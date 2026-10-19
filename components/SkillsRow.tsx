@@ -27,7 +27,7 @@ export function SkillsRow({ skills, onRun, disabled }: { skills: Skill[]; onRun:
   return (
     <div
       ref={ref} data-skills-row onScroll={update}
-      className="rp-noscrollbar absolute inset-x-0 bottom-full z-10 flex gap-1.5 overflow-x-auto px-3 pb-2 pt-1" /* floats over the messages, no background; padding leaves room for the chips' shadow */
+      className="rp-noscrollbar absolute inset-x-0 bottom-[calc(100%-8px)] z-10 flex gap-1.5 overflow-x-auto px-3 pb-4 pt-2" /* floats over the messages, no background. The scroller clips vertically, so the padding holds the chips' shadow; the extra bottom padding dips 8px into the composer area to keep the chips 8px above the input */
       style={{ maskImage: mask, WebkitMaskImage: mask }}
     >
       {skills.map((s) => (

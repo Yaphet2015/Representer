@@ -30,8 +30,8 @@
   --shadow-sm: 0 1px 1px oklch(0 0 0 / 0.02), 0 2px 4px oklch(0 0 0 / 0.04), 0 4px 8px oklch(0 0 0 / 0.03);
   --shadow-btn: 0 0 0 1px var(--line-strong), var(--shadow-xs);
   --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
-  /* chips floating over content (skills row): hairline + soft lift, kept within ~8px so the row's padding holds it */
-  --shadow-float: 0 0 0 1px var(--line-strong), 0 1px 2px oklch(0 0 0 / 0.05), 0 3px 8px -2px oklch(0 0 0 / 0.12);
+  /* chips floating over content (skills row): hairline + soft lift; reaches ~7px above and ~15px below, which the row's padding holds */
+  --shadow-float: 0 0 0 1px var(--line-strong), 0 1px 2px oklch(0 0 0 / 0.05), 0 4px 14px -3px oklch(0 0 0 / 0.14);
 }
 
 @keyframes shimmer-text { from { background-position: 150% center; } to { background-position: -50% center; } }
