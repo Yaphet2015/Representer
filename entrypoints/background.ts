@@ -1,4 +1,5 @@
 import { createCache } from '@/lib/cache';
+import { usedAnchors } from '@/lib/locate';
 import { CHAT_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
 import { listModels, testConnection } from '@/lib/models';
 import { providerFor } from '@/lib/provider';
@@ -29,13 +30,14 @@ export default defineBackground(() => {
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
   const handlers: Handlers = {
     getCached: async ({ url }) => ({ cached: await cache.getSummary(url) }),
-    summarize: async ({ url, title, content, force }) => {
-      if (!force) { const c = await cache.getSummary(url); if (c) return { summary: c.summary }; }
+    summarize: async ({ url, title, content, force, anchors: all }) => {
+      if (!force) { const c = await cache.getSummary(url); if (c) return { summary: c.summary, anchors: c.anchors }; }
       const { s, lang } = await ctx();
       const summary = await providerFor(s, lang).summarize(title, url, content);
+      const anchors = usedAnchors(summary, all); // keep only the fingerprints the summary points at
       await cache.clearSummary(url);
-      await cache.setSummary(url, { summary, content, title });
-      return { summary };
+      await cache.setSummary(url, { summary, content, title, anchors });
+      return { summary, anchors };
     },
     getShortcut: async () => ({ shortcut: (await chrome.commands.getAll()).find((c) => c.name === COMMAND)?.shortcut ?? '' }),
     listModels: async ({ settings }) => ({ models: await listModels(settings, fetch, undefined, (await ctx()).lang) }),

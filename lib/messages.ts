@@ -3,11 +3,12 @@ import type { CachedSummary } from './cache';
 import type { TestResult } from './models';
 import type { SessionsState } from './sessions';
 import type { Settings, Summary } from './types';
+import type { Anchors } from './locate';
 
 /** request → response payload, keyed by message type */
 export interface Api {
   getCached: { req: { url: string }; res: { cached: CachedSummary | null } };
-  summarize: { req: { url: string; title: string; content: string; force: boolean }; res: { summary: Summary } };
+  summarize: { req: { url: string; title: string; content: string; force: boolean; anchors?: Anchors }; res: { summary: Summary; anchors?: Anchors } };
   getShortcut: { req: {}; res: { shortcut: string } };
   listModels: { req: { settings: Pick<Settings, 'baseUrl' | 'apiKey'> }; res: { models: string[] } };
   testConnection: { req: { settings: Settings }; res: { result: TestResult } };

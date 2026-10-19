@@ -16,40 +16,35 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej)
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('aborted')); });
 });
 
-/** Plain-text paragraphs of the extracted Markdown, each with the heading it sits under. */
-function paragraphs(md: string): { text: string; heading: string }[] {
-  const out: { text: string; heading: string }[] = []; let heading = '';
-  for (const block of md.split(/\n\s*\n/)) {
-    const raw = block.trim();
-    const h = raw.match(/^#{1,6}\s+(.+)$/m);
-    if (h && raw.split('\n').length === 1) { heading = plain(h[1]!); continue; }
-    const text = plain(raw);
-    if (text.length >= 60 && !/^(\||```)/.test(raw)) out.push({ text, heading });
+/** `[pN]` ids of the content's blocks, each with the id of the heading it sits under. */
+function blockIds(content: string): { id: string; heading: string }[] {
+  const out: { id: string; heading: string }[] = []; let heading = '';
+  for (const line of content.split(/\n+/)) {
+    const m = line.match(/\[(p\d+)\]\s*(.*)$/);
+    if (!m) continue;
+    if (/^\s*#{1,6}\s/.test(line)) heading = m[1]!;
+    else if (m[2]!.length >= 40) out.push({ id: m[1]!, heading });
   }
   return out;
 }
-const plain = (s: string) => s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-  .replace(/^\s*(?:[-*+>]|\d+\.)\s+/gm, '').replace(/[*_`#]/g, '').replace(/\s+/g, ' ').trim();
-/** First ~10 words of a paragraph: a verbatim excerpt like the real model is asked to return. */
-const excerpt = (p: string) => { const w = p.split(' '); return w.length > 3 ? w.slice(0, 10).join(' ') : p.slice(0, 30); };
 
 export function buildMockSummary(title: string, lang: Lang = 'zh-CN', content = ''): Summary {
   const m = mockText(lang);
   const icons = ['target', 'lightbulb', 'check'] as const;
-  // Spread the bullets over the page so "jump to source" can be previewed in mock mode.
-  const paras = paragraphs(content);
+  // Spread the bullets' anchors over the page so jumping to the page can be previewed in mock mode.
+  const ids = blockIds(content);
   const n = m.mockSections.reduce((a, [, b]) => a + b.length, 0);
-  const pick = (k: number) => paras.length ? paras[Math.min(paras.length - 1, Math.floor((k * paras.length) / n))]! : null;
+  const pick = (k: number) => ids[Math.min(ids.length - 1, Math.floor((k * ids.length) / n))]!;
   let k = 0;
   return {
     overview: m.mockOverview(title.trim() || m.mockPage),
     keyTerms: [...m.mockTerms],
     sections: m.mockSections.map(([title, bullets], i) => {
       const sec: Summary['sections'][number] = { title, icon: icons[i]!, bullets: [...bullets] };
-      if (paras.length) {
-        const first = pick(k)!;
-        sec.quote = first.heading || excerpt(first.text);
-        sec.quotes = bullets.map(() => excerpt(pick(k++)!.text));
+      if (ids.length) {
+        const first = pick(k);
+        sec.anchor = first.heading || first.id;
+        sec.anchors = bullets.map(() => pick(k++).id);
       }
       return sec;
     }),

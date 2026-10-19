@@ -22,17 +22,16 @@ describe('mock provider', () => {
     for (const t of s.keyTerms) expect(s.overview).toContain(t);
     expect(buildMockSummary('X').sections.every((x) => x.bullets.length >= 2)).toBe(true);
   });
-  it('adds verbatim page excerpts as quotes when given the page content', () => {
-    const md = '# Title\n\n## History\n\n' + Array.from({ length: 6 }, (_, i) => `Paragraph ${i} talks about [printing](https://x.y) and **movable type** in some depth here.`).join('\n\n');
+  it('points its sections and bullets at block ids of the page content', () => {
+    const md = '[p1] # Title\n\n## [p2] History\n\n' + Array.from({ length: 6 }, (_, i) => `[p${i + 3}] Paragraph ${i} talks about printing and movable type in some depth here.`).join('\n\n');
     const s = buildMockSummary('T', 'en', md);
     expect(isSummary(s)).toBe(true);
-    const plain = md.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*/g, '');
     for (const sec of s.sections) {
-      expect(sec.quote).toBe('History');
-      expect(sec.quotes).toHaveLength(sec.bullets.length);
-      for (const q of sec.quotes!) expect(plain).toContain(q);
+      expect(sec.anchor).toBe('p2');
+      expect(sec.anchors).toHaveLength(sec.bullets.length);
+      for (const a of sec.anchors!) expect(md).toContain(`[${a}] Paragraph`);
     }
-    expect(buildMockSummary('T', 'en').sections[0]!.quotes).toBeUndefined();
+    expect(buildMockSummary('T', 'en').sections[0]!.anchors).toBeUndefined();
   });
   it('streams the reply token by token', async () => {
     const parts: string[] = [];

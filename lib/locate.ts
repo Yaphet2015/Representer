@@ -1,53 +1,48 @@
 /**
- * Find the part of the live page a summary item came from, so the overview can work like anchors.
+ * Overview items → page passages, like anchors.
  *
- * Matching runs on a "key" of the page text: only letters and digits, lower-cased, so whitespace,
- * punctuation, curly quotes and inline markup (<b>, <a>, line breaks) can't break a match.
- *  1. exact hit of the item's verbatim quote,
- *  2. otherwise a hit of the quote's head, tail or middle (the model shortened or tweaked it),
- *  3. otherwise the block whose words overlap most with the quote / item text (fuzzy).
+ * At extraction every text block of the live page gets an id (`p1`, `p2`, …). The model sees the ids as
+ * `[p12]` markers in the content and returns an `anchor` id per section / bullet, so it never has to copy text.
+ * For each id we keep a fingerprint (hash + length of the block's letters/digits, its leading words, its
+ * position). Later, against the live DOM (after the summary, on clicks, after DOM changes), an id is resolved:
+ *  1. a block with the same text hash (ties → the one closest to the original position),
+ *  2. else a block that starts the same way with a similar length (text was edited a bit),
+ *  3. else fuzzy word overlap with the stored leading words, then with the item text.
+ * Summaries cached before anchors existed (plain strings, or the short-lived `quote` format) use the fuzzy
+ * path / quote search only.
  */
 
 const BLOCK_TAGS = new Set(['P', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'TD', 'TH', 'DD', 'DT', 'FIGCAPTION', 'SUMMARY', 'CAPTION']);
-const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TEXTAREA', 'SELECT', 'OPTION', 'SVG', 'CANVAS', 'IFRAME']);
+const BOX_TAGS = new Set(['DIV', 'SECTION', 'ARTICLE', 'MAIN', 'ASIDE']); // only when they hold text themselves
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TEXTAREA', 'SELECT', 'OPTION', 'SVG', 'CANVAS', 'IFRAME', 'BUTTON', 'NAV', 'FOOTER']);
 /** Our overlay host; its content lives in a shadow root, but never match inside it either way. */
 export const OVERLAY_TAG = 'representer-overlay';
 const MIN_KEY = 12; // shortest partial quote (in letters/digits) we trust
-
-const isKeyChar = (c: string) => /[\p{L}\p{N}]/u.test(c);
+const HEAD_CHARS = 64; // leading text kept per fingerprint (local storage only, never sent to the model)
 
 /** Letters and digits only, lower-cased (NFKC folds full-width forms). */
 export function keyOf(s: string): string {
   let out = '';
-  for (const c of s.normalize('NFKC').toLowerCase()) if (isKeyChar(c)) out += c;
+  for (const c of s.normalize('NFKC').toLowerCase()) if (/[\p{L}\p{N}]/u.test(c)) out += c;
   return out;
 }
 
-/** Find `quote` in `hayKey` (a keyOf() string): exact, then head / tail / middle. Returns [start, end) or null. */
-export function findQuote(hayKey: string, quote: string, from = 0): [number, number] | null {
-  const q = keyOf(quote);
-  if (q.length < Math.min(MIN_KEY, 6)) return null;
-  const at = (needle: string): [number, number] | null => {
-    const i = hayKey.indexOf(needle, from);
-    return i < 0 ? null : [i, i + needle.length];
-  };
-  const exact = at(q);
-  if (exact || q.length < MIN_KEY * 2) return exact;
-  const part = Math.max(MIN_KEY, Math.floor(q.length * 0.4));
-  return at(q.slice(0, part)) ?? at(q.slice(-part)) ?? at(q.slice(Math.floor((q.length - part) / 2), Math.floor((q.length + part) / 2)));
+/** FNV-1a, 32-bit, hex. */
+export function hash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16);
 }
 
 const STOP = new Set('the and for are but not you all any can had her was one our out has his how its may new now see two way who did get let put say she too use that with have this from they will would there their what about which when your into than them then some these been more also such only over very just like most other where after could while should'.split(' '));
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 
-/** Comparable tokens: Latin/Cyrillic/etc. words (3+ letters, minus stop words) and CJK character bigrams. */
+/** Comparable tokens: words (3+ letters, minus stop words, crude stemming) and CJK character bigrams. */
 export function tokens(s: string): Set<string> {
   const out = new Set<string>();
-  const t = s.normalize('NFKC').toLowerCase();
-  for (const w of t.match(/[\p{L}\p{N}]+/gu) ?? []) {
-    const cjk = w.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu);
-    if (cjk) for (const run of cjk) for (let i = 0; i < run.length - 1; i++) out.add(run.slice(i, i + 2));
-    const rest = w.replace(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu, ' ');
-    for (const x of rest.split(' ')) if (x.length >= 3 && !STOP.has(x)) out.add(x.length > 5 ? x.slice(0, 5 + Math.floor((x.length - 5) / 2)) : x); // crude stemming
+  for (const w of s.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    for (const run of w.match(CJK) ?? []) for (let i = 0; i < run.length - 1; i++) out.add(run.slice(i, i + 2));
+    for (const x of w.replace(CJK, ' ').split(' ')) if (x.length >= 3 && !STOP.has(x)) out.add(x.length > 5 ? x.slice(0, 5 + Math.floor((x.length - 5) / 2)) : x);
   }
   return out;
 }
@@ -66,7 +61,18 @@ export function bestMatch(texts: string[], query: string, min = 0.6): number {
   return score >= min ? best : -1;
 }
 
-export interface PageIndex { key: string; /** key char index → text node */ nodeAt: Text[]; blocks: Element[]; blockText: string[] }
+/** Legacy `quote` summaries: find a quote in a keyOf() string, exact then head / tail / middle. */
+export function findQuote(hayKey: string, quote: string, from = 0): [number, number] | null {
+  const q = keyOf(quote);
+  if (q.length < 6) return null;
+  const at = (needle: string): [number, number] | null => { const i = hayKey.indexOf(needle, from); return i < 0 ? null : [i, i + needle.length]; };
+  const exact = at(q);
+  if (exact || q.length < MIN_KEY * 2) return exact;
+  const part = Math.max(MIN_KEY, Math.floor(q.length * 0.4));
+  return at(q.slice(0, part)) ?? at(q.slice(-part)) ?? at(q.slice(Math.floor((q.length - part) / 2), Math.floor((q.length + part) / 2)));
+}
+
+// ── page blocks ───────────────────────────────────────────────────────────────
 
 const skipped = (el: Element | null): boolean => {
   for (let e = el; e; e = e.parentElement) {
@@ -74,71 +80,134 @@ const skipped = (el: Element | null): boolean => {
   }
   return false;
 };
-
-/** Nearest block-level ancestor of a node (a known block tag, else the first non-inline element), never <body>. */
-export function blockOf(node: Node): Element | null {
-  const view = node.ownerDocument?.defaultView;
-  let first: Element | null = null;
-  for (let e = node.parentElement; e && e.localName !== 'body' && e.localName !== 'html'; e = e.parentElement) {
-    if (BLOCK_TAGS.has(e.tagName.toUpperCase())) return e;
-    if (!first) {
-      const d = view?.getComputedStyle?.(e).display;
-      if (d ? !d.startsWith('inline') && d !== 'contents' : /^(DIV|SECTION|ARTICLE|ASIDE|MAIN)$/i.test(e.tagName)) first = e;
-    }
-  }
-  return first;
-}
-
-export function buildIndex(doc: Document): PageIndex {
-  const root = doc.body ?? doc.documentElement;
-  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
-  const nodeAt: Text[] = []; const blocks: Element[] = []; const blockText: string[] = [];
-  const slot = new Map<Element, number>();
-  let key = '';
-  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
-    if (!n.data.trim() || skipped(n.parentElement)) continue;
-    const k = keyOf(n.data);
-    key += k; for (let i = 0; i < k.length; i++) nodeAt.push(n);
-    const b = blockOf(n);
-    if (!b) continue;
-    let i = slot.get(b);
-    if (i == null) { i = blocks.push(b) - 1; blockText.push(''); slot.set(b, i); }
-    blockText[i] += ' ' + n.data;
-  }
-  return { key, nodeAt, blocks, blockText };
-}
-
 const visible = (el: Element) => typeof (el as any).getClientRects !== 'function' || el.getClientRects().length > 0;
+const ownText = (el: Element) => { let s = ''; for (const n of el.childNodes) if (n.nodeType === 3) s += (n as Text).data; return s; };
+const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-/** The page block an item points to, or null. `quote` is verbatim page text; `text` is the item itself (fallback). */
-export function locate(index: PageIndex, item: { quote?: string; text: string }): Element | null {
-  if (item.quote) {
-    for (let from = 0, hit = findQuote(index.key, item.quote); hit; hit = findQuote(index.key, item.quote, from)) {
-      const el = blockOf(index.nodeAt[hit[0]]!);
-      if (el && visible(el)) return el;
-      from = hit[0] + 1;
-    }
+/** Innermost text blocks of the page, in document order (paragraphs, list items, headings, cells, text-holding divs). */
+export function listBlocks(doc: Document): Element[] {
+  const root = doc.body ?? doc.documentElement;
+  const cands = [...root.querySelectorAll('*')].filter((el) => {
+    const tag = el.tagName.toUpperCase();
+    return BLOCK_TAGS.has(tag) || (BOX_TAGS.has(tag) && keyOf(ownText(el)).length >= 20);
+  });
+  const parents = new Set<Element>();
+  const set = new Set(cands);
+  for (const el of cands) for (let p = el.parentElement; p && p !== root; p = p.parentElement) if (set.has(p)) parents.add(p);
+  // a box that only wraps other blocks is not a block itself; a <p>/<li> wrapping nested blocks keeps its own place
+  return cands.filter((el) => !(parents.has(el) && BOX_TAGS.has(el.tagName.toUpperCase())) && !skipped(el) && keyOf(el.textContent ?? '').length >= 2 && visible(el));
+}
+
+export interface Fingerprint { /** hash of the letters/digits */ h: string; /** their count */ n: number; /** leading text */ head: string; /** position among the page blocks */ o: number }
+export type Anchors = Record<string, Fingerprint>;
+
+export function fingerprint(el: Element, o: number): Fingerprint {
+  const text = clean(el.textContent ?? '');
+  const k = keyOf(text);
+  return { h: hash(k), n: k.length, head: text.slice(0, HEAD_CHARS), o };
+}
+
+/** Number the page's blocks: ids p1…pN in document order, with their fingerprints. */
+export function numberBlocks(doc: Document): { blocks: Element[]; anchors: Anchors } {
+  const blocks = listBlocks(doc);
+  const anchors: Anchors = {};
+  blocks.forEach((el, i) => { anchors[`p${i + 1}`] = fingerprint(el, i); });
+  return { blocks, anchors };
+}
+
+/** The fingerprints a summary actually points at (what gets cached). */
+export function usedAnchors(summary: { sections: { anchor?: string; anchors?: string[] }[] }, all: Anchors | undefined): Anchors | undefined {
+  if (!all) return undefined;
+  const out: Anchors = {};
+  for (const s of summary.sections) for (const id of [s.anchor, ...(s.anchors ?? [])]) if (id && all[id]) out[id] = all[id]!;
+  return out;
+}
+
+/** Matches `[p12]` markers in extracted content (Markdown converters may escape the brackets). */
+export const MARKER_RE = /\\?\[p(\d+)\\?\]\s?/g;
+export const stripMarkers = (s: string) => s.replace(MARKER_RE, '');
+
+// ── live resolution ───────────────────────────────────────────────────────────
+
+export interface LiveIndex { blocks: Element[]; fps: Fingerprint[]; texts: string[]; keys: string[]; byHash: Map<string, number[]>; key: string; keyBlock: number[] }
+
+export function liveIndex(doc: Document): LiveIndex {
+  const blocks = listBlocks(doc);
+  const fps = blocks.map((el, i) => fingerprint(el, i));
+  const texts = blocks.map((el) => clean(el.textContent ?? ''));
+  const keys = texts.map(keyOf);
+  const byHash = new Map<string, number[]>();
+  fps.forEach((f, i) => { const l = byHash.get(f.h); if (l) l.push(i); else byHash.set(f.h, [i]); });
+  // flat letters/digits string with a block index per char, for legacy quotes
+  let key = ''; const keyBlock: number[] = [];
+  keys.forEach((k, i) => { key += k; for (let j = 0; j < k.length; j++) keyBlock.push(i); });
+  return { blocks, fps, texts, keys, byHash, key, keyBlock };
+}
+
+const closest = (list: number[], o: number) => list.reduce((a, b) => (Math.abs(b - o) < Math.abs(a - o) ? b : a));
+
+/**
+ * How far blocks moved since extraction (content added/removed above): the median move of anchors whose
+ * text is unique on the page. Lets duplicates be told apart by position even after the page shifted.
+ */
+export function pageShift(live: LiveIndex, anchors: Anchors | undefined): number {
+  const d: number[] = [];
+  for (const fp of Object.values(anchors ?? {})) {
+    const same = live.byHash.get(fp.h);
+    if (same?.length === 1) d.push(same[0]! - fp.o);
   }
+  d.sort((a, b) => a - b);
+  return d.length ? d[Math.floor(d.length / 2)]! : 0;
+}
+
+/** Find the live block for a stored fingerprint; `shift` from pageShift(). */
+export function resolveFingerprint(live: LiveIndex, fp: Fingerprint, shift = 0): Element | null {
+  const o = fp.o + shift;
+  const same = live.byHash.get(fp.h)?.filter((i) => live.fps[i]!.n === fp.n);
+  if (same?.length) return live.blocks[closest(same, o)]!;
+  const head = keyOf(fp.head).slice(0, 24);
+  if (head.length >= 8) {
+    const near = live.keys.flatMap((k, i) => (k.startsWith(head) && Math.abs(live.fps[i]!.n - fp.n) <= Math.max(20, fp.n * 0.3) ? [i] : []));
+    if (near.length) return live.blocks[closest(near, o)]!;
+  }
+  const i = bestMatch(live.texts, fp.head, 0.7);
+  return i >= 0 ? live.blocks[i]! : null;
+}
+
+const shifts = new WeakMap<LiveIndex, Map<Anchors | undefined, number>>();
+const shiftOf = (live: LiveIndex, anchors: Anchors | undefined) => {
+  let m = shifts.get(live); if (!m) shifts.set(live, (m = new Map()));
+  if (!m.has(anchors)) m.set(anchors, pageShift(live, anchors));
+  return m.get(anchors)!;
+};
+
+export interface Item { anchor?: string; /** legacy summaries only */ quote?: string; text: string }
+
+/** The live block an overview item points to, or null. */
+export function resolveItem(live: LiveIndex, anchors: Anchors | undefined, item: Item): Element | null {
+  const fp = item.anchor ? anchors?.[item.anchor] : undefined;
+  if (fp) { const el = resolveFingerprint(live, fp, shiftOf(live, anchors)); if (el) return el; }
+  if (item.quote) { const hit = findQuote(live.key, item.quote); if (hit) return live.blocks[live.keyBlock[hit[0]]!]!; }
   for (const q of [item.quote, item.text]) {
-    const i = q ? bestMatch(index.blockText, q) : -1;
-    if (i >= 0 && visible(index.blocks[i]!)) return index.blocks[i]!;
+    const i = q ? bestMatch(live.texts, q) : -1;
+    if (i >= 0) return live.blocks[i]!;
   }
   return null;
 }
 
-/** Smooth-scroll a block into view (centered, clear of our panel's height) and flash a fading highlight on it. */
+/** Smooth-scroll a block into view (centered) and flash a fading highlight on it. */
 export function jumpTo(el: Element) {
   const win = el.ownerDocument.defaultView ?? window;
   const reduce = win.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const tall = el.getBoundingClientRect().height > win.innerHeight * 0.7;
   el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: tall ? 'start' : 'center', inline: 'nearest' });
   // Paint-only properties: no layout shift, and the page's own styles come back when it ends.
-  const color = 'rgba(255, 196, 0, 0.32)';
+  const on = 'rgba(255, 196, 0, 0.32)', off = 'rgba(255, 196, 0, 0)';
   el.animate?.(
     [
-      { backgroundColor: color, boxShadow: `0 0 0 6px ${color}`, borderRadius: '4px' },
-      { backgroundColor: color, boxShadow: `0 0 0 6px ${color}`, borderRadius: '4px', offset: 0.35 },
-      { backgroundColor: 'rgba(255, 196, 0, 0)', boxShadow: '0 0 0 6px rgba(255, 196, 0, 0)', borderRadius: '4px' },
+      { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px' },
+      { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px', offset: 0.35 },
+      { backgroundColor: off, boxShadow: `0 0 0 6px ${off}`, borderRadius: '4px' },
     ],
     { duration: reduce ? 900 : 1800, delay: reduce ? 0 : 250, easing: 'ease-out' },
   );

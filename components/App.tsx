@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { extractPage } from '@/lib/extract';
 import { normalizeUrl } from '@/lib/url';
 import type { Summary } from '@/lib/types';
+import type { Anchors } from '@/lib/locate';
 import { bus } from './bus';
 import { Chat } from './Chat';
 import { Check, Close, Fork, Minus, Refresh, Restore } from './Icons';
@@ -24,6 +25,7 @@ export function App() {
   const [url, setUrl] = useState(() => normalizeUrl(location.href));
   const [title, setTitle] = useState(document.title);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [anchors, setAnchors] = useState<Anchors | undefined>(undefined);
   const [chatKey, setChatKey] = useState(0);
   const [sideCount, setSideCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -46,15 +48,15 @@ export function App() {
     try {
       if (!force) {
         const c = await rpc('getCached', { url: u });
-        if (c.ok && c.cached) { setSummary(c.cached.summary); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
+        if (c.ok && c.cached) { setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
       }
       const page = extractPage();
       setTitle(page.title);
-      const r = await rpc('summarize', { url: u, title: page.title, content: page.content, force });
+      const r = await rpc('summarize', { url: u, title: page.title, content: page.content, anchors: page.anchors, force });
       if (!r.ok) throw new Error(r.error);
       // keep the skeleton visible briefly so a fast re-summarize still reads as "something happened"
       if (force) await new Promise((res) => setTimeout(res, Math.max(0, 500 - (Date.now() - t0))));
-      setSummary(r.summary); setChatKey((k) => k + 1);
+      setSummary(r.summary); setAnchors(r.anchors); setChatKey((k) => k + 1);
       if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 2000); }
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -123,7 +125,7 @@ export function App() {
                     {!loading && error && <ErrorView error={error} retry={() => run(true)} />}
                     {!loading && summary && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-                        <Overview summary={summary} />
+                        <Overview summary={summary} anchors={anchors} />
                       </motion.div>
                     )}
                   </div>

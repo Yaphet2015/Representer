@@ -3,10 +3,12 @@ export const ICON_TYPES: IconType[] = ['target', 'lightbulb', 'list', 'chart', '
 
 export interface Section {
   title: string; icon: IconType; bullets: string[];
-  /** short verbatim page excerpt the title comes from (for jumping to it in the page) */
-  quote?: string;
-  /** quotes[i] is the verbatim excerpt for bullets[i] ('' = none). Missing in summaries cached before this existed. */
-  quotes?: string[];
+  /** id of the page block (`p12`) the title is based on; see lib/locate.ts */
+  anchor?: string;
+  /** anchors[i] is the block id for bullets[i] ('' = none) */
+  anchors?: string[];
+  /** legacy (short-lived format): verbatim page excerpts instead of ids; still read for cached summaries */
+  quote?: string; quotes?: string[];
 }
 export interface Summary { overview: string; keyTerms: string[]; sections: Section[] }
 export interface ChatMessage { role: 'user' | 'assistant'; content: string; /** what the UI shows instead of content (e.g. a Skill run) */ label?: string }
