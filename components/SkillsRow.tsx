@@ -27,7 +27,7 @@ export function SkillsRow({ skills, onRun, disabled }: { skills: Skill[]; onRun:
   return (
     <div
       ref={ref} data-skills-row onScroll={update}
-      className="rp-noscrollbar absolute inset-x-0 bottom-full z-10 flex gap-1.5 overflow-x-auto px-3 pb-1.5 pt-0.5" /* floats over the messages, no background */
+      className="rp-noscrollbar absolute inset-x-0 bottom-full z-10 flex gap-1.5 overflow-x-auto px-3 pb-2 pt-1" /* floats over the messages, no background; padding leaves room for the chips' shadow */
       style={{ maskImage: mask, WebkitMaskImage: mask }}
     >
       {skills.map((s) => (
@@ -35,7 +35,7 @@ export function SkillsRow({ skills, onRun, disabled }: { skills: Skill[]; onRun:
           key={s.id} type="button" disabled={disabled} title={t.runSkill(s.name)}
           onMouseDown={(e) => e.preventDefault() /* keep page selection + composer focus */}
           onClick={() => onRun(s)}
-          className="inline-flex h-[26px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-surface px-2.5 text-[12px] text-ink shadow-btn transition-[background-color,transform,color] duration-150 hover:bg-accent-tint hover:text-accent-ink active:scale-[0.96] disabled:opacity-50"
+          className="inline-flex h-[26px] shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-surface px-2.5 text-[12px] text-ink shadow-float transition-[background-color,transform,color] duration-150 hover:bg-accent-tint hover:text-accent-ink active:scale-[0.96] disabled:opacity-50"
         >
           {s.icon && <span aria-hidden>{s.icon}</span>}{s.name}
         </button>
