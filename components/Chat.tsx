@@ -96,7 +96,7 @@ export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pag
   return (
     <div className="flex h-full flex-col">
       {state && <SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} />}
-      <div className="rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
+      <div className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 pt-3 ${skills.length ? 'pb-11' : 'pb-3'}`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
             {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}

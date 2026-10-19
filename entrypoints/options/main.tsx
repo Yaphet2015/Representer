@@ -7,7 +7,6 @@ import { isLocalUrl } from '@/lib/url';
 import { Button } from '@/components/bui/Button';
 import { useMock } from '@/lib/mock';
 import { mockText } from '@/lib/mock-text';
-import { CHAT_RULES, summaryInstructions } from '@/lib/prompts';
 import { ModelCombobox } from '@/components/ModelCombobox';
 import { SkillsManager } from '@/components/SkillsManager';
 import { LangProvider, useLang, useT } from '@/components/i18n';
@@ -87,7 +86,7 @@ function Options() {
             {test && !test.ok && <span className="text-red-600">{t.testFail(test.error ?? '')}</span>}
           </span>
         </div>
-        <div className="space-y-1" data-system-prompt>
+        <div className="space-y-1 border-t border-zinc-200 pt-4" data-system-prompt>
           <div className="flex items-center justify-between">
             <span className="text-[13px] font-medium text-zinc-700">{t.systemPrompt}</span>
             <Button variant="quiet" size="sm" onClick={() => setS({ ...s, systemPrompt: '' })} disabled={!s.systemPrompt}>{t.systemPromptReset}</Button>
@@ -97,11 +96,6 @@ function Options() {
             placeholder={t.systemPromptPlaceholder} aria-label={t.systemPrompt}
             className="block w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-accent"
           />
-          <p className="text-[12px] leading-relaxed text-zinc-500">{t.systemPromptDesc}</p>
-          <details className="text-[12px] text-zinc-500">
-            <summary className="cursor-pointer select-none">{t.systemPromptView}</summary>
-            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }} className="mt-1 max-h-48 overflow-y-auto overflow-x-hidden rounded-lg bg-zinc-50 p-2 text-[11.5px] leading-relaxed text-zinc-600">{summaryInstructions(lang)}{'\n\n'}{CHAT_RULES}</pre>
-          </details>
         </div>
         {import.meta.env.DEV && (() => {
           const m = mockText(lang);
