@@ -1,10 +1,11 @@
 import type { ChatMessage, Summary } from './types';
+import type { Anchors } from './locate';
 import { initialState, type SessionsState } from './sessions';
 import type { KV } from './storage';
 
 export const TTL_MS = 24 * 60 * 60 * 1000;
 
-export interface CachedSummary { summary: Summary; content: string; title: string; createdAt: number }
+export interface CachedSummary { summary: Summary; content: string; title: string; createdAt: number; /** fingerprints of the block ids the summary points at (missing in older entries) */ anchors?: Anchors }
 
 export function isFresh(createdAt: number, now = Date.now(), ttl = TTL_MS): boolean {
   return now - createdAt >= 0 && now - createdAt < ttl;

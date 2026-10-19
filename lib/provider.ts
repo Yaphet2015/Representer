@@ -15,7 +15,7 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
   // Mock mode is a dev-only tool: production builds ignore the stored flag and drop the mock code.
   const dev = import.meta.env.DEV;
   if (useMock(dev ? s : { ...s, mock: false })) {
-    if (dev) return { summarize: (title) => mockSummary(title, lang), chat: (_c, _h, input, onDelta, signal) => mockStream(input, onDelta, signal, 30, lang) };
+    if (dev) return { summarize: (title, _url, content) => mockSummary(title, lang, undefined, content), chat: (_c, _h, input, onDelta, signal) => mockStream(input, onDelta, signal, 30, lang) };
     const fail = () => Promise.reject(new Error(messages(lang).noApiKey));
     return { summarize: fail, chat: fail };
   }

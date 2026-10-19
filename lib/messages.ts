@@ -3,11 +3,12 @@ import type { CachedSummary } from './cache';
 import type { TestResult } from './models';
 import type { SessionsState } from './sessions';
 import type { Settings, Summary } from './types';
+import type { Anchors } from './locate';
 
 /** request → response payload, keyed by message type */
 export interface Api {
   getCached: { req: { url: string }; res: { cached: CachedSummary | null } };
-  summarize: { req: { url: string; title: string; content: string; force: boolean }; res: { summary: Summary } };
+  summarize: { req: { url: string; title: string; content: string; force: boolean; anchors?: Anchors }; res: { summary: Summary; anchors?: Anchors } };
   getShortcut: { req: {}; res: { shortcut: string } };
   listModels: { req: { settings: Pick<Settings, 'baseUrl' | 'apiKey'> }; res: { models: string[] } };
   testConnection: { req: { settings: Settings }; res: { result: TestResult } };
@@ -35,4 +36,4 @@ export async function rpc<K extends MsgType>(type: K, req: Api[K]['req']): Promi
 /** Streaming chat over a long-lived port. */
 export const CHAT_PORT = 'chat';
 export interface ChatRequest { url: string; text: string; sid: string; label?: string }
-export type ChatEvent = { delta: string } | { done: true } | { error: string };
+export type ChatEvent = { delta: string } | { done: true; text?: string } | { error: string };

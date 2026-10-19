@@ -36,7 +36,7 @@ export function Composer({ value, onChange, onSubmit, disabled, canSend, status,
         <div
           role="presentation"
           onClick={() => inputRef.current?.focus()}
-          className="flex cursor-text flex-col gap-2 rounded-control border border-line bg-field px-2.5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.035)] transition-[border-color,box-shadow] duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-ring)]"
+          className="flex cursor-text flex-col gap-2 rounded-control border border-line bg-field px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.035)]"
         >
           <textarea
             ref={inputRef} rows={1} value={value} disabled={disabled}

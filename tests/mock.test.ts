@@ -22,6 +22,17 @@ describe('mock provider', () => {
     for (const t of s.keyTerms) expect(s.overview).toContain(t);
     expect(buildMockSummary('X').sections.every((x) => x.bullets.length >= 2)).toBe(true);
   });
+  it('points its sections and bullets at block ids of the page content', () => {
+    const md = '[p1] # Title\n\n## [p2] History\n\n' + Array.from({ length: 6 }, (_, i) => `[p${i + 3}] Paragraph ${i} talks about printing and movable type in some depth here.`).join('\n\n');
+    const s = buildMockSummary('T', 'en', md);
+    expect(isSummary(s)).toBe(true);
+    for (const sec of s.sections) {
+      expect(sec.anchor).toBe('p2');
+      expect(sec.anchors).toHaveLength(sec.bullets.length);
+      for (const a of sec.anchors!) expect(md).toContain(`[${a}] Paragraph`);
+    }
+    expect(buildMockSummary('T', 'en').sections[0]!.anchors).toBeUndefined();
+  });
   it('streams the reply token by token', async () => {
     const parts: string[] = [];
     const out = await mockStream('hi', (d) => parts.push(d), undefined, 0);

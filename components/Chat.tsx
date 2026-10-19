@@ -1,3 +1,4 @@
+import { bus } from './bus';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLang, useT } from './i18n';
 import { CHAT_PORT, rpc, type ChatEvent, type ChatRequest } from '@/lib/messages';
@@ -12,7 +13,7 @@ import { Markdown } from './Markdown';
 import { slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pageTitle: string; disabled: boolean; reloadKey: number }) {
+export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount }: { url: string; pageTitle: string; disabled: boolean; reloadKey: number; onSideCount?: (n: number) => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [input, setInput] = useState('');
@@ -37,7 +38,9 @@ export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pag
     const onSel = () => { const t = window.getSelection()?.toString().trim(); if (t) lastSelection.current = t; };
     document.addEventListener('selectionchange', onSel); return () => document.removeEventListener('selectionchange', onSel);
   }, []);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [messages.length, messages[messages.length - 1]?.content]);
+  // Scroll the list itself to the very bottom: scrollIntoView on the end marker would stop short of the
+  // bottom padding, leaving the last message under the floating skills row. Also re-run on session switch/fork.
+  useEffect(() => { const el = end.current?.parentElement; if (el) el.scrollTop = el.scrollHeight; }, [sid, messages.length, messages[messages.length - 1]?.content]);
 
   const patchMessages = (id: string, f: (m: ChatMessage[]) => ChatMessage[]) =>
     setState((s) => s && { ...s, sessions: s.sessions.map((x) => (x.id === id ? { ...x, messages: f(x.messages) } : x)) });
@@ -50,6 +53,7 @@ export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pag
     port.onMessage.addListener((msg: ChatEvent) => {
       if ('delta' in msg) patch((s) => s + msg.delta);
       else {
+        if ('done' in msg && msg.text) { const full = msg.text; patch(() => full); }
         if ('error' in msg) { const err = msg.error; patch((s) => s + (s ? '\n\n' : '') + '⚠️ ' + err); }
         setBusy(false); port.disconnect();
       }
@@ -92,10 +96,16 @@ export function Chat({ url, pageTitle, disabled, reloadKey }: { url: string; pag
 
   const canSend = !!input.trim() && !busy && !disabled;
 
+  // With no side chats the "new side chat" button lives in the panel header (see App).
+  const sideCount = (state?.sessions.length ?? 1) - 1;
+  useEffect(() => { onSideCount?.(sideCount); }, [sideCount, onSideCount]);
+  const forkRef = useRef(() => {}); forkRef.current = () => { if (!busy && !disabled) fork(); };
+  useEffect(() => bus.on('fork', () => forkRef.current()), []);
+
   return (
     <div className="flex h-full flex-col">
-      {state && <SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} />}
-      <div className="rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
+      {state && state.sessions.length > 1 && <SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} />}
+      <div className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 pt-3 ${skills.length ? 'pb-11' : 'pb-3'}`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
             {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}

@@ -16,19 +16,44 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej)
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('aborted')); });
 });
 
-export function buildMockSummary(title: string, lang: Lang = 'zh-CN'): Summary {
+/** `[pN]` ids of the content's blocks, each with the id of the heading it sits under. */
+function blockIds(content: string): { id: string; heading: string }[] {
+  const out: { id: string; heading: string }[] = []; let heading = '';
+  for (const line of content.split(/\n+/)) {
+    const m = line.match(/\[(p\d+)\]\s*(.*)$/);
+    if (!m) continue;
+    if (/^\s*#{1,6}\s/.test(line)) heading = m[1]!;
+    else if (m[2]!.length >= 40) out.push({ id: m[1]!, heading });
+  }
+  return out;
+}
+
+export function buildMockSummary(title: string, lang: Lang = 'zh-CN', content = ''): Summary {
   const m = mockText(lang);
   const icons = ['target', 'lightbulb', 'check'] as const;
+  // Spread the bullets' anchors over the page so jumping to the page can be previewed in mock mode.
+  const ids = blockIds(content);
+  const n = m.mockSections.reduce((a, [, b]) => a + b.length, 0);
+  const pick = (k: number) => ids[Math.min(ids.length - 1, Math.floor((k * ids.length) / n))]!;
+  let k = 0;
   return {
     overview: m.mockOverview(title.trim() || m.mockPage),
     keyTerms: [...m.mockTerms],
-    sections: m.mockSections.map(([title, bullets], i) => ({ title, icon: icons[i]!, bullets: [...bullets] })),
+    sections: m.mockSections.map(([title, bullets], i) => {
+      const sec: Summary['sections'][number] = { title, icon: icons[i]!, bullets: [...bullets] };
+      if (ids.length) {
+        const first = pick(k);
+        sec.anchor = first.heading || first.id;
+        sec.anchors = bullets.map(() => pick(k++).id);
+      }
+      return sec;
+    }),
   };
 }
 
-export async function mockSummary(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal): Promise<Summary> {
+export async function mockSummary(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = ''): Promise<Summary> {
   await sleep(MOCK_DELAY_MS, signal);
-  return buildMockSummary(title, lang);
+  return buildMockSummary(title, lang, content);
 }
 
 export function mockReplyText(question: string, lang: Lang = 'zh-CN'): string {

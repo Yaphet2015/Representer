@@ -1,4 +1,9 @@
-import { ICON_TYPES, type IconType, type Summary } from './types';
+import { ICON_TYPES, type IconType, type Section, type Summary } from './types';
+
+const optStr = (v: unknown) => v === undefined || typeof v === 'string';
+const optStrs = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+/** `p12`, also tolerating `[p12]` / `P12` / 12. */
+export const anchorId = (v: unknown): string => { const m = String(v ?? '').match(/^\s*\[?\s*p?(\d+)\s*\]?\s*$/i); return m ? `p${+m[1]!}` : ''; };
 
 /** Structural check for a Summary (replaces the former zod schema; same rules). */
 export function isSummary(v: any): v is Summary {
@@ -6,7 +11,8 @@ export function isSummary(v: any): v is Summary {
     && Array.isArray(v.keyTerms) && v.keyTerms.every((t: unknown) => typeof t === 'string')
     && Array.isArray(v.sections) && v.sections.every((s: any) =>
       s && typeof s.title === 'string' && s.title.length > 0 && ICON_TYPES.includes(s.icon)
-      && Array.isArray(s.bullets) && s.bullets.every((b: unknown) => typeof b === 'string'));
+      && Array.isArray(s.bullets) && s.bullets.every((b: unknown) => typeof b === 'string')
+      && optStr(s.anchor) && optStrs(s.anchors) && optStr(s.quote) && optStrs(s.quotes));
 }
 
 /** Extract and validate the summary JSON returned by the LLM (tolerates code fences / prose). */
@@ -23,11 +29,21 @@ export function parseSummary(text: string): Summary {
     : [];
   const sections = (Array.isArray(raw.sections) ? raw.sections : [])
     .filter((x: any) => x && typeof x.title === 'string')
-    .map((x: any) => ({
-      title: x.title.trim(),
-      icon: (ICON_TYPES.includes(x.icon) ? x.icon : 'list') as IconType,
-      bullets: (Array.isArray(x.bullets) ? x.bullets : []).filter((b: unknown) => typeof b === 'string').map((b: string) => b.trim()),
-    }));
+    .map((x: any) => {
+      // bullets are {text, anchor} objects; plain strings (older summaries / sloppy output) and the legacy {text, quote} still work
+      const items = (Array.isArray(x.bullets) ? x.bullets : [])
+        .map((b: any) => (typeof b === 'string' ? { text: b } : b && typeof b.text === 'string' ? b : null))
+        .filter((b: any) => b && b.text.trim());
+      const sec: Section = { title: x.title.trim(), icon: (ICON_TYPES.includes(x.icon) ? x.icon : 'list') as IconType, bullets: items.map((b: any) => b.text.trim()) };
+      const anchor = anchorId(x.anchor);
+      if (anchor) sec.anchor = anchor;
+      const anchors = items.map((b: any) => anchorId(b.anchor));
+      if (anchors.some(Boolean)) sec.anchors = anchors;
+      if (typeof x.quote === 'string' && x.quote.trim()) sec.quote = x.quote.trim();
+      const quotes = items.map((b: any) => (typeof b.quote === 'string' ? b.quote.trim() : ''));
+      if (quotes.some(Boolean)) sec.quotes = quotes;
+      return sec;
+    });
   const summary = { overview: raw.overview.trim(), keyTerms, sections };
   if (!isSummary(summary)) throw new Error('Invalid summary: every section needs a non-empty title');
   return summary;

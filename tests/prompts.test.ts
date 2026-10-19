@@ -29,3 +29,18 @@ describe('custom system prompt', () => {
     expect(withUserPrompt('A', 'B', 'N:')).toBe('A\n\nN:\n<user_instructions>\nB\n</user_instructions>');
   });
 });
+
+describe('summary contract', () => {
+  it('asks for block ids, not copied text', () => {
+    const p = summaryInstructions('zh-CN');
+    expect(p).toContain('"bullets": [{"text": string, "anchor": string}]');
+    expect(p).toMatch(/\[p12\]/);
+    expect(p).not.toMatch(/quote|copied/i);
+  });
+  it('chat sees the content and summary without block ids', () => {
+    const s = { overview: 'o', keyTerms: [], sections: [{ title: 'T', icon: 'list' as const, bullets: ['b'], anchor: 'p1', anchors: ['p2'] }] };
+    const p = chatSystem('T', s, '[p1] Hello\n\n[p2] World');
+    expect(p).not.toMatch(/\[p\d+\]|"anchors?"/);
+    expect(p).toContain('Hello\n\nWorld');
+  });
+});
