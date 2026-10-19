@@ -6,7 +6,7 @@ import { normalizeUrl } from '@/lib/url';
 import type { Summary } from '@/lib/types';
 import { bus } from './bus';
 import { Chat } from './Chat';
-import { Check, Close, Minus, Refresh, Restore } from './Icons';
+import { Check, Close, Fork, Minus, Refresh, Restore } from './Icons';
 import { Overview } from './Overview';
 import { Segmented, type Tab } from './Segmented';
 import { Skeleton } from './Skeleton';
@@ -25,6 +25,7 @@ export function App() {
   const [title, setTitle] = useState(document.title);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [chatKey, setChatKey] = useState(0);
+  const [sideCount, setSideCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
@@ -94,10 +95,18 @@ export function App() {
             <Segmented value={tab} onChange={(t) => { setTab(t); setMin(false); }} className="mx-0" />
             {min && <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">{loading ? <Shimmer>{t.summarizing}</Shimmer> : title}</span>}
             <div className="flex shrink-0 items-center gap-0.5 text-ink-2">
-              <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); run(true); }} disabled={loading}
-                title={loading ? t.summarizing : flash ? t.updated : t.resummarize} aria-label={t.resummarize}>
-                {flash && !loading ? <Check className="h-4 w-4 text-green" /> : <Refresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />}
-              </Button>
+              {/* Refresh re-summarizes, so it only belongs to the overview. In chat the slot holds "new side chat" until side chats exist (then it moves into the session tabs). */}
+              {tab === 'overview' ? (
+                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); run(true); }} disabled={loading}
+                  title={loading ? t.summarizing : flash ? t.updated : t.resummarize} aria-label={t.resummarize}>
+                  {flash && !loading ? <Check className="h-4 w-4 text-green" /> : <Refresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />}
+                </Button>
+              ) : !min && sideCount === 0 && (
+                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); bus.emit('fork'); }} disabled={!summary || loading}
+                  title={t.newSide} aria-label={t.newSide}>
+                  <Fork className="h-4 w-4" />
+                </Button>
+              )}
               <Button variant="quiet" size="icon" title={min ? t.restore : t.minimize} aria-label={min ? t.restore : t.minimize}
                 onClick={(e) => { e.stopPropagation(); setMin((m) => !m); }}>
                 {min ? <Restore /> : <Minus />}
@@ -119,7 +128,7 @@ export function App() {
                     )}
                   </div>
                 ) : (
-                  <Chat url={url} pageTitle={title} reloadKey={chatKey} disabled={!summary || loading} />
+                  <Chat url={url} pageTitle={title} reloadKey={chatKey} disabled={!summary || loading} onSideCount={setSideCount} />
                 )}
               </div>
             </>
