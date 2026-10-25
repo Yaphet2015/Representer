@@ -40,6 +40,10 @@ describe('Overview excerpt', () => {
     expect(h).toContain('My Page · example.com'); // title and site, without www.
     expect(h.indexOf('data-excerpt')).toBeGreaterThan(h.indexOf('>o<') - 1);
   });
+  it('shows a cached quote without one-sided quotation marks or dangling punctuation', () => {
+    const h = html({ overview: 'o', sections: [], quote: { text: '"the cache never lies to you,"', anchor: 'p1' } });
+    expect(h).toContain('“the cache never lies to you”');
+  });
   it('renders nothing when the quote failed validation', () => {
     const q = parseSummary(raw({ text: 'something the page never said', anchor: 'p1' }), content);
     expect(html(q)).not.toContain('data-excerpt');

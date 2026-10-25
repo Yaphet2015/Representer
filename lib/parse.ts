@@ -74,13 +74,55 @@ const bareLinks = (s: string) => s.replace(/\]\([^)]*\)/g, '');
 export function validateQuote(raw: unknown, content: string): Excerpt | undefined {
   const q = raw as { text?: unknown; anchor?: unknown } | null | undefined;
   if (!q || typeof q.text !== 'string') return undefined;
-  // the display adds its own quotation marks, so drop the ones wrapped around the text
-  const text = stripMarks(q.text).replace(/\s+/g, ' ').trim().replace(/^["'“”‘’「」『』«»]+|["'“”‘’「」『』«»]+$/g, '').trim();
+  const text = stripMarks(q.text).replace(/\s+/g, ' ').trim(); // quotation marks are tidied below, after the checks
   if (text.length < QUOTE_MIN || text.length > QUOTE_MAX) return undefined;
   const anchor = anchorId(q.anchor);
   const block = anchor ? blockTexts(content).get(anchor) : undefined;
   if (!block) return undefined;
   const key = keyOf(text);
   if (key.length < 6 || !keyOf(bareLinks(block)).includes(key)) return undefined;
-  return { text, anchor };
+  const clean = cleanQuoteText(text);
+  if (clean.length < QUOTE_MIN) return undefined;
+  return { text: clean, anchor };
+}
+
+const OPEN: Record<string, string> = { '“': '”', '「': '」', '『': '』', '«': '»' };
+const CLOSE = new Set(Object.values(OPEN));
+/** positions of quotation marks that have no partner (straight `"` pairs up with the next one) */
+function unpairedQuotes(s: string): number[] {
+  const stack: [string, number][] = []; const lone: number[] = [];
+  [...s].forEach((c, i) => {
+    if (c === '"') { const top = stack[stack.length - 1]; if (top?.[0] === '"') stack.pop(); else stack.push(['"', i]); }
+    else if (OPEN[c]) stack.push([OPEN[c]!, i]);
+    else if (CLOSE.has(c)) { const k = stack.map((x) => x[0]).lastIndexOf(c); if (k >= 0) stack.splice(k); else lone.push(i); }
+  });
+  return [...lone, ...stack.map((x) => x[1])].sort((a, b) => a - b);
+}
+const WRAPS: [string, string][] = [['"', '"'], ['“', '”'], ['‘', '’'], ["'", "'"], ['「', '」'], ['『', '』'], ['«', '»']];
+const EDGE_PUNCT = /^[\s,;:，；：、\-–—]+|[\s,;:，；：、\-–—]+$/g;
+/**
+ * Tidy a quote that already passed validation: no one-sided quotation marks and no dangling punctuation at the
+ * ends. A stray closing mark followed by a short attribution (`…find them," Kanhere said.`) ends the quote there;
+ * any other unpaired mark is just removed. Paired marks inside the text stay.
+ */
+export function cleanQuoteText(text: string): string {
+  let out = text.trim();
+  // the display adds its own quotation marks, so a pair wrapped around the whole text goes
+  for (let n = 0; n < 3; n++) {
+    // a quoted sentence followed by a short attribution (`"…them," Kanhere said.`): keep the sentence only
+    const open = WRAPS.find(([a]) => out.startsWith(a) && a !== "'" && a !== '‘');
+    const close = open ? out.indexOf(open[1], 1) : -1;
+    if (open && close > 0 && close < out.length - 1 && out.length - close - 1 <= 40 && !/["“”「」『』«»]/.test(out.slice(close + 1)) && out.slice(1, close).replace(EDGE_PUNCT, '').length >= QUOTE_MIN) { out = out.slice(1, close).replace(EDGE_PUNCT, ''); continue; }
+    const pair = WRAPS.find(([a, b]) => out.length > 2 && out.startsWith(a) && out.endsWith(b) && !unpairedQuotes(out.slice(1, -1)).length);
+    if (!pair) break;
+    out = out.slice(1, -1).trim();
+  }
+  const lone = unpairedQuotes(out);
+  if (lone.length) {
+    const last = lone[lone.length - 1]!; const chars = [...out];
+    const head = chars.slice(0, last).join('').replace(EDGE_PUNCT, '');
+    if ((chars[last] === '"' || CLOSE.has(chars[last]!)) && chars.length - last - 1 <= 40 && head.length >= QUOTE_MIN) out = head;
+    out = [...out].filter((_, i) => !unpairedQuotes(out).includes(i)).join('');
+  }
+  return out.replace(EDGE_PUNCT, '').replace(/\s{2,}/g, ' ').trim();
 }
