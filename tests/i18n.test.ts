@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { messages, resolveLang } from '../lib/i18n';
+import { stripMarks } from '../lib/highlight';
 import { buildMockSummary, mockReplyText } from '../lib/mock';
 import { summaryInstructions } from '../lib/prompts';
 import { forkSession, initialState, sessionLabel } from '../lib/sessions';
@@ -33,12 +34,15 @@ describe('messages', () => {
 });
 
 describe('localized content', () => {
-  it('mock summary and reply follow the language, key terms appear in the overview', () => {
+  it('mock summary and reply follow the language, the overview carries marks', () => {
     for (const lang of ['en', 'zh-CN'] as const) {
       const s = buildMockSummary('Page', lang);
-      for (const k of s.keyTerms) expect(s.overview).toContain(k);
+      expect(stripMarks(s.overview)).not.toMatch(/==|\[\[|\]\]/);
+      expect(s.overview).toMatch(/==.+==/);
     }
     expect(buildMockSummary('Page', 'en').overview).toMatch(/^This is a sample summary/);
+    expect(messages('zh-CN').askTerm('X')).toBe('「X」是什么？它在这页里是怎么用的？');
+    expect(messages('en').askTerm('X')).toBe('What is “X”, and how is it used on this page?');
     expect(mockReplyText('hi', 'en')).toMatch(/^\(Sample reply\)/);
   });
   it('summary prompt asks for the UI language', () => {

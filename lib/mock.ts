@@ -1,5 +1,6 @@
 import type { Lang } from './i18n';
 import { mockText } from './mock-text';
+import { applyMarks } from './parse';
 import type { Settings, Summary } from './types';
 import { isLocalUrl } from './url';
 
@@ -16,14 +17,14 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej)
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('aborted')); });
 });
 
-/** `[pN]` ids of the content's blocks, each with the id of the heading it sits under. */
-function blockIds(content: string): { id: string; heading: string }[] {
-  const out: { id: string; heading: string }[] = []; let heading = '';
+/** `[pN]` ids of the content's blocks, each with the id of the heading it sits under (and the block's text). */
+function blockIds(content: string): { id: string; heading: string; text: string }[] {
+  const out: { id: string; heading: string; text: string }[] = []; let heading = '';
   for (const line of content.split(/\n+/)) {
     const m = line.match(/\[(p\d+)\]\s*(.*)$/);
     if (!m) continue;
     if (/^\s*#{1,6}\s/.test(line)) heading = m[1]!;
-    else if (m[2]!.length >= 40) out.push({ id: m[1]!, heading });
+    else if (m[2]!.length >= 40) out.push({ id: m[1]!, heading, text: m[2]! });
   }
   return out;
 }
@@ -36,9 +37,10 @@ export function buildMockSummary(title: string, lang: Lang = 'zh-CN', content = 
   const n = m.mockSections.reduce((a, [, b]) => a + b.length, 0);
   const pick = (k: number) => ids[Math.min(ids.length - 1, Math.floor((k * ids.length) / n))]!;
   let k = 0;
-  return {
+  // a sample quote: the start of a plain-text block (markdown syntax would fail the check against the block)
+  const q = ids.find((b) => /^[^*_`\[\]<>#|]{40,}$/.test(b.text.slice(0, 120)));
+  const summary: Summary = {
     overview: m.mockOverview(title.trim() || m.mockPage),
-    keyTerms: [...m.mockTerms],
     sections: m.mockSections.map(([title, bullets], i) => {
       const sec: Summary['sections'][number] = { title, icon: icons[i]!, bullets: [...bullets] };
       if (ids.length) {
@@ -49,6 +51,8 @@ export function buildMockSummary(title: string, lang: Lang = 'zh-CN', content = 
       return sec;
     }),
   };
+  if (q) summary.quote = { text: q.text.slice(0, 120).trim(), anchor: q.id };
+  return applyMarks(summary);
 }
 
 export async function mockSummary(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = ''): Promise<Summary> {

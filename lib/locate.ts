@@ -116,16 +116,29 @@ export function numberBlocks(doc: Document): { blocks: Element[]; anchors: Ancho
 }
 
 /** The fingerprints a summary actually points at (what gets cached). */
-export function usedAnchors(summary: { sections: { anchor?: string; anchors?: string[] }[] }, all: Anchors | undefined): Anchors | undefined {
+export function usedAnchors(summary: { sections: { anchor?: string; anchors?: string[] }[]; quote?: { anchor?: string } }, all: Anchors | undefined): Anchors | undefined {
   if (!all) return undefined;
   const out: Anchors = {};
   for (const s of summary.sections) for (const id of [s.anchor, ...(s.anchors ?? [])]) if (id && all[id]) out[id] = all[id]!;
+  const q = summary.quote?.anchor;
+  if (q && all[q]) out[q] = all[q]!;
   return out;
 }
 
 /** Matches `[p12]` markers in extracted content (Markdown converters may escape the brackets). */
 export const MARKER_RE = /\\?\[p(\d+)\\?\]\s?/g;
 export const stripMarkers = (s: string) => s.replace(MARKER_RE, '');
+
+/** Text of each `[pN]` block in extracted content (up to the next marker). */
+export function blockTexts(content: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const ms = [...content.matchAll(MARKER_RE)];
+  ms.forEach((m, i) => {
+    const id = `p${m[1]}`;
+    if (!out.has(id)) out.set(id, content.slice(m.index! + m[0].length, ms[i + 1]?.index ?? content.length));
+  });
+  return out;
+}
 
 // ── live resolution ───────────────────────────────────────────────────────────
 

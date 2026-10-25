@@ -31,16 +31,27 @@ describe('custom system prompt', () => {
 });
 
 describe('summary contract', () => {
-  it('asks for block ids, not copied text', () => {
+  it('asks for block ids on titles and bullets, and the quote is anchored to a block too', () => {
     const p = summaryInstructions('zh-CN');
     expect(p).toContain('"bullets": [{"text": string, "anchor": string}]');
+    expect(p).toContain('"quote": {"text": string, "anchor": string} or null');
     expect(p).toMatch(/\[p12\]/);
-    expect(p).not.toMatch(/quote|copied/i);
+  });
+  it('describes the highlight rules and no longer asks for keyTerms', () => {
+    const p = summaryInstructions('en');
+    expect(p).not.toMatch(/keyTerms/);
+    for (const needle of ['==like this==', '[[like this]]', 'Skim test', 'Deletion test', '[[/setup-pstack]]', 'bare number']) expect(p).toContain(needle);
   });
   it('chat sees the content and summary without block ids', () => {
     const s = { overview: 'o', keyTerms: [], sections: [{ title: 'T', icon: 'list' as const, bullets: ['b'], anchor: 'p1', anchors: ['p2'] }] };
     const p = chatSystem('T', s, '[p1] Hello\n\n[p2] World');
     expect(p).not.toMatch(/\[p\d+\]|"anchors?"/);
     expect(p).toContain('Hello\n\nWorld');
+  });
+  it('chat sees the summary without highlight marks or the old keyTerms', () => {
+    const s = { overview: 'A ==key phrase== and [[Term]].', keyTerms: ['Term'], sections: [{ title: 'T', icon: 'list' as const, bullets: ['use [[/setup-pstack]] now'] }], quote: { text: 'q', anchor: 'p1' } };
+    const p = chatSystem('T', s, 'content');
+    expect(p).toContain('A key phrase and Term.'); expect(p).toContain('use /setup-pstack now');
+    expect(p).not.toMatch(/==|\[\[|\]\]|keyTerms/);
   });
 });

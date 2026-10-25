@@ -1,6 +1,6 @@
 import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { bestMatch, findQuote, keyOf, liveIndex, MARKER_RE, numberBlocks, resolveItem, stripMarkers, usedAnchors } from '../lib/locate';
+import { bestMatch, blockTexts, findQuote, keyOf, liveIndex, MARKER_RE, numberBlocks, resolveItem, stripMarkers, usedAnchors } from '../lib/locate';
 
 const page = (body: string) => parseHTML(`<!doctype html><html><head><title>t</title></head><body>${body}</body></html>`).document as unknown as Document;
 
@@ -84,6 +84,11 @@ describe('markers and caching', () => {
     const { anchors } = numberBlocks(page(ARTICLE));
     const used = usedAnchors({ sections: [{ anchor: 'p1', anchors: ['p2', '', 'p404'] }] }, anchors)!;
     expect(Object.keys(used).sort()).toEqual(['p1', 'p2']);
+  });
+  it('keeps the fingerprint of the quote block too, and reads block texts from the content', () => {
+    const { anchors } = numberBlocks(page(ARTICLE));
+    expect(Object.keys(usedAnchors({ sections: [], quote: { anchor: 'p2' } }, anchors)!)).toEqual(['p2']);
+    expect([...blockTexts('[p1] Hello\n\n\\[p2\\] world\n\nmore').entries()]).toEqual([['p1', 'Hello\n\n'], ['p2', 'world\n\nmore']]);
   });
 });
 

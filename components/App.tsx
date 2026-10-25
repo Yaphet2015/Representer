@@ -31,6 +31,8 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
+  /** text a clicked term puts into the chat input (not sent) */
+  const [draft, setDraft] = useState<{ text: string; id: number } | null>(null);
   const { width, resizing, handleProps } = useResizableWidth();
   const lang = useLang();
   // Tell translators (and screen readers) the panel's language, separate from the host page's.
@@ -125,12 +127,12 @@ export function App() {
                     {!loading && error && <ErrorView error={error} retry={() => run(true)} />}
                     {!loading && summary && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-                        <Overview summary={summary} anchors={anchors} />
+                        <Overview summary={summary} anchors={anchors} pageTitle={title} onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); setMin(false); }} />
                       </motion.div>
                     )}
                   </div>
                 ) : (
-                  <Chat url={url} pageTitle={title} reloadKey={chatKey} disabled={!summary || loading} onSideCount={setSideCount} />
+                  <Chat url={url} pageTitle={title} reloadKey={chatKey} disabled={!summary || loading} onSideCount={setSideCount} draft={draft} onDraftUsed={() => setDraft(null)} />
                 )}
               </div>
             </>
