@@ -15,17 +15,24 @@ const STRONG_MAX_CHARS = 80;
 const TERM_MAX_CHARS = 40;
 
 const isWs = (c: string | undefined) => !!c && /\s/.test(c);
-/** `==` that is exactly two equal signs (not `===`), and not a spaced comparison like `a == b`. */
+const isWord = (c: string | undefined) => !!c && /[A-Za-z0-9_]/.test(c);
+/**
+ * `==` that can be a marker: exactly two equal signs (not `===`), not a spaced comparison (`a == b`),
+ * and not a pin or comparison glued between ASCII words (`requests==2.6.0`, `a==b`).
+ */
 function eq2(s: string, i: number): boolean {
   if (s[i] !== '=' || s[i + 1] !== '=' || s[i - 1] === '=' || s[i + 2] === '=') return false;
-  return !(isWs(s[i - 1]) && isWs(s[i + 2]));
+  if (isWs(s[i - 1]) && isWs(s[i + 2])) return false;
+  return !(isWord(s[i - 1]) && isWord(s[i + 2]));
 }
-const cleanPlain = (s: string) => {
+/** drop marker symbols that are left over in text that is not a mark */
+const dropMarkers = (s: string) => {
   let out = s.replace(/\[\[|\]\]/g, '');
-  out = out.replace(/(?<!=)==(?!=)/g, (m, off: number, all: string) => (isWs(all[off - 1]) && isWs(all[off + 2]) ? m : ''));
+  for (let i = out.length - 2; i >= 0; i--) if (eq2(out, i)) out = out.slice(0, i) + out.slice(i + 2);
   return out;
 };
-const cleanInner = (s: string) => s.replace(/\[\[|\]\]/g, '').replace(/(?<!=)==(?!=)/g, '');
+const cleanPlain = dropMarkers;
+const cleanInner = dropMarkers;
 /** models like to add Markdown emphasis or code ticks inside a mark (`==*phrase*==`); the mark is the emphasis already */
 const unwrap = (s: string): string => { const m = s.match(/^(\*{1,3}|`+)([^]+?)\1$/); return m && m[2]!.trim() ? unwrap(m[2]!.trim()) : s; };
 
@@ -143,5 +150,6 @@ export function normalizeMarks(parts: string[], scopeOf: (i: number) => number =
   for (const r of refs('term').reverse()) { if (marked() / total <= MAX_RATIO) break; demote(r); }
   for (const r of refs('strong').slice(1).reverse()) { if (marked() / total <= MAX_RATIO) break; demote(r); }
 
-  return segs.map(serializeMarks);
+  // demoting can leave odd leftovers in plain text; settle to a form that re-parses to itself
+  return segs.map((g) => { let out = serializeMarks(g); for (let i = 0; i < 3; i++) { const next = serializeMarks(parseMarks(out)); if (next === out) break; out = next; } return out; });
 }

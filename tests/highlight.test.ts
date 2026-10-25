@@ -30,6 +30,13 @@ describe('parseMarks (tolerant)', () => {
     expect(stripMarks('a == b')).toBe('a == b');
     expect(stripMarks('x === y')).toBe('x === y');
   });
+  it('leaves version pins and comparisons between ASCII words alone', () => {
+    expect(stripMarks('pip install requests==2.6.0 now')).toBe('pip install requests==2.6.0 now');
+    expect(stripMarks('if a==b then ==pin requests==2.6.0== ok').replace(/\s+/g, ' ')).toBe('if a==b then pin requests==2.6.0 ok');
+    expect(kinds('==pin requests==2.6.0 for stability== now')).toEqual(['strong:pin requests==2.6.0 for stability']);
+    expect(kinds('加包名==版本号（如 requests==2.6.0）可锁定')).toEqual([]);
+    expect(stripMarks('加包名==版本号（如 requests==2.6.0）可锁定')).toBe('加包名版本号（如 requests==2.6.0）可锁定');
+  });
   it('nested and overlapping marks resolve to the outer mark, with no symbols left', () => {
     expect(kinds('==use [[pstack]] today==')).toEqual(['strong:use pstack today']);
     expect(kinds('[[a ==b== c]]')).toEqual(['term:a b c']);
