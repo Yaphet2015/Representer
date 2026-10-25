@@ -25,6 +25,7 @@ export const buttonVariants = cva(
         md: 'px-4 py-[9px] text-sm leading-none rounded-full gap-2',
         /* local addition: square icon button for the panel header */
         icon: 'size-7 rounded-control',
+        'icon-sm': 'size-6 rounded-[7px]',
       },
     },
     defaultVariants: { variant: 'secondary', size: 'md' },

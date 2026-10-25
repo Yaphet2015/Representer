@@ -9,6 +9,7 @@ export const Restore = S(<><rect x="5" y="5" width="14" height="14" rx="3" strok
 export const Close = S(<path d="M6 6l12 12M18 6L6 18" />);
 export const Refresh = S(<><path d="M20 11a8 8 0 10-2.3 5.7" /><path d="M20 5v6h-6" /></>);
 export const Check = S(<path d="M5 12.5l4.5 4.5L19 7.5" strokeWidth={2.2} />);
+export const Copy = S(<><rect x="9" y="9" width="11" height="11" rx="2.5" /><path d="M5 15V6.5A2.5 2.5 0 017.5 4H15" /></>);
 export const Send = S(<path d="M5 12h14M13 6l6 6-6 6" />);
 export const BulletIcons: Record<IconType, (p: P) => React.JSX.Element> = {
   target: S(<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r=".8" fill="currentColor" /></>),
