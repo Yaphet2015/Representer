@@ -1,5 +1,6 @@
 /** What the copy buttons put on the clipboard: Markdown without marks and without internal block ids. */
 import { stripMarks } from './highlight';
+import { cleanQuoteText } from './parse';
 import type { Summary } from './types';
 
 const oneLine = (s: string) => s.replace(/\s*\n\s*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
@@ -39,7 +40,7 @@ export function overviewMarkdown(summary: Summary, opts: OverviewCopyOpts = {}):
     if (!heading && !bullets.length) continue; // nothing to show
     blocks.push([heading && `## ${heading}`, ...bullets.map((b) => `- ${b}`)].filter(Boolean).join('\n'));
   }
-  const quote = summary.quote ? clean(summary.quote.text) : '';
+  const quote = summary.quote ? clean(cleanQuoteText(summary.quote.text)) : ''; // also tidies quotes cached by earlier versions
   if (quote) {
     const from = opts.excerptFrom ? clean(opts.excerptFrom) : '';
     blocks.push([opts.excerptTitle && `## ${clean(opts.excerptTitle)}`, [`> “${quote}”`, ...(from ? ['>', `> — ${from}`] : [])].join('\n')].filter(Boolean).join('\n\n'));

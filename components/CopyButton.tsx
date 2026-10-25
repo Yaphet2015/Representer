@@ -12,10 +12,11 @@ const TIP = {
 } as const;
 
 /**
- * Small icon button that copies Markdown. Shows a check (and a "Copied" bubble) for 1.5s afterwards.
+ * Small icon button that copies Markdown. The icon turns into a check for 1.5s afterwards (no bubble; screen readers
+ * are told through `aria-label` and a live region). Only a failure shows a visible "Copy failed" bubble.
  * `reveal`: hidden until the parent `.group` is hovered or focused (always visible on touch screens and when focused).
  */
-export function CopyButton({ getText, label, reveal = false, tip = 'top', className = '' }: { getText: () => string; label: string; reveal?: boolean; /** where the "Copied" bubble goes (pick a side with room: the list clips at its edges) */ tip?: 'top' | 'bottom' | 'left'; className?: string }) {
+export function CopyButton({ getText, label, reveal = false, tip = 'top', className = '' }: { getText: () => string; label: string; reveal?: boolean; /** side of the "Copy failed" bubble (pick a side with room: the list clips at its edges) */ tip?: 'top' | 'bottom' | 'left'; className?: string }) {
   const t = useT();
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -32,14 +33,14 @@ export function CopyButton({ getText, label, reveal = false, tip = 'top', classN
     <span className={`relative inline-flex shrink-0 ${className}`}>
       <Button
         type="button" variant="quiet" size="icon-sm" onClick={onClick}
-        title={text} aria-label={text} data-copy={state}
+        title={state === 'failed' ? text : label} aria-label={text} data-copy={state}
         className={`text-ink-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${state === 'copied' ? 'text-green hover:text-green' : ''} ${reveal ? 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100' : ''} ${state !== 'idle' ? '!opacity-100' : ''}`}
       >
         {state === 'copied' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
       </Button>
-      {/* live region: announces the result to screen readers; the bubble is the visible tooltip */}
+      {/* live region: announces the result to screen readers */}
       <span role="status" aria-live="polite" className="sr-only">{state === 'idle' ? '' : text}</span>
-      {state !== 'idle' && (
+      {state === 'failed' && (
         <span aria-hidden className={`pointer-events-none absolute z-10 whitespace-nowrap ${TIP[tip]} rounded-chip bg-ink px-2 py-1 text-[11px] leading-none text-surface shadow-float`}>{text}</span>
       )}
     </span>

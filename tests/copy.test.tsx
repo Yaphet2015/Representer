@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { copyText, legacyCopy } from '../lib/clipboard';
@@ -36,6 +37,10 @@ describe('overviewMarkdown', () => {
   it('quote without a source still copies as a quote; empty summaries copy as empty text', () => {
     expect(overviewMarkdown({ overview: 'x', sections: [], quote: { text: 'Hello there world', anchor: 'p1' } })).toBe('x\n\n> “Hello there world”');
     expect(overviewMarkdown({ overview: '', sections: [] })).toBe('');
+  });
+  it('copies the excerpt without one-sided quotation marks', () => {
+    const m = overviewMarkdown({ overview: 'x', sections: [], quote: { text: '"The underlying bugs weren\'t new; what changed was our ability to find them," Kanhere said.', anchor: 'p1' } }, { excerptFrom: 'Site' });
+    expect(m).toBe('x\n\n> “The underlying bugs weren\'t new; what changed was our ability to find them”\n>\n> — Site');
   });
   it('old summaries (no marks, legacy keyTerms) copy as plain text', () => {
     expect(overviewMarkdown({ overview: 'React uses a virtual DOM.', keyTerms: ['virtual DOM'], sections: [{ title: 'A', icon: 'list', bullets: ['b'] }] })).toBe('React uses a virtual DOM.\n\n## A\n- b');
@@ -76,6 +81,13 @@ describe('copyText', () => {
 });
 
 describe('CopyButton', () => {
+  it('renders no bubble in its idle state and the success state has none either (only failures are shown)', () => {
+    const src = readFileSync(new URL('../components/CopyButton.tsx', import.meta.url), 'utf8');
+    expect(src).toContain("state === 'failed' && (");
+    expect(src).not.toMatch(/state !== 'idle' && \(\s*<span aria-hidden/);
+    expect(src).toContain('role="status"'); // the screen-reader announcement stays
+    expect(renderToStaticMarkup(<CopyButton label="Copy" getText={() => 'x'} />)).not.toContain('aria-hidden="true" class="pointer-events-none');
+  });
   it('is a labelled button; reveal hides it until hover/focus but never on touch or keyboard focus', () => {
     const h = renderToStaticMarkup(<CopyButton reveal label="Copy message" getText={() => 'x'} />);
     expect(h).toMatch(/<button[^>]*aria-label="(复制消息|Copy message)"/);
