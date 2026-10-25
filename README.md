@@ -15,11 +15,11 @@ English · [简体中文](./README.zh-CN.md)
 
 </div>
 
-**Representer** is an open-source Chrome extension that summarizes any web page: an overview with highlighted key terms and a section-by-section outline of key points. You can then keep asking questions about the page. It is **BYOK**: it works with any OpenAI-compatible API (OpenAI, OpenRouter, DeepSeek, Ollama, …), and all data stays in your browser.
+**Representer** is an open-source Chrome extension that summarizes any web page: an overview with a few highlighted takeaways, clickable terms and a quote from the page, plus a section-by-section outline of key points. You can then keep asking questions about the page. It is **BYOK**: it works with any OpenAI-compatible API (OpenAI, OpenRouter, DeepSeek, Ollama, …), and all data stays in your browser.
 
 ## Features
 
-- ✨ **AI summary + key points**: content is extracted with [defuddle](https://github.com/kepano/defuddle). The model writes an overview with highlighted key terms and a section outline, with color-coded branches for easy scanning.
+- ✨ **AI summary + key points**: content is extracted with [defuddle](https://github.com/kepano/defuddle). The model writes an overview with a couple of highlighted key phrases and a few clickable terms (click one to ask about it in the chat), a section outline with color-coded branches, and, when the page has a good one, a line quoted from it at the bottom (click to jump to it).
 - 💬 **Follow-up chat**: ask about the summary and the original page. Replies stream in, and conversations are saved per page.
 - 🌿 **Side chats with `/side`**: fork the current conversation into a side session, then switch or close it any time.
 - ⚡ **Custom Skills**: turn your favorite prompts into one-click buttons with `{{input}}` / `{{selection}}` / `{{page_title}}` placeholders. Recently used Skills appear above the composer.

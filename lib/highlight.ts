@@ -26,6 +26,8 @@ const cleanPlain = (s: string) => {
   return out;
 };
 const cleanInner = (s: string) => s.replace(/\[\[|\]\]/g, '').replace(/(?<!=)==(?!=)/g, '');
+/** models like to add Markdown emphasis or code ticks inside a mark (`==*phrase*==`); the mark is the emphasis already */
+const unwrap = (s: string): string => { const m = s.match(/^(\*{1,3}|`+)([^]+?)\1$/); return m && m[2]!.trim() ? unwrap(m[2]!.trim()) : s; };
 
 /**
  * Split one string into plain / strong / term segments.
@@ -39,7 +41,7 @@ export function parseMarks(input: string): Seg[] {
   const flush = () => { if (plain) { const t = cleanPlain(plain); if (t) out.push({ text: t }); plain = ''; } };
   const push = (kind: MarkKind, raw: string, next: string | undefined) => {
     const content = cleanInner(raw);
-    const text = content.trim();
+    const text = unwrap(content.trim());
     if (!text) { plain += content; return; }
     // padding inside the marks (`== a ==`) stays as one space between the neighbours, not part of the mark
     if (content !== content.trimStart() && plain && !isWs(plain[plain.length - 1])) plain += ' ';

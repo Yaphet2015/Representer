@@ -37,7 +37,7 @@ Highlights. Mark them inline, only in "overview" and the bullets' "text" (never 
 - Fit the page: news - who did what, key numbers; tutorial - commands and the most common pitfall; paper - the claim, the method name, result numbers; opinion - the thesis; product page - name, price, how it differs from others; docs - API names and breaking changes.
 Example overview: "[[Acme CLI]] 2.0 rewrites the cache layer, so ==cold builds drop from 90s to 12s==. The catch: ==1.x configs must be migrated before upgrading== (run [[acme migrate]])."
 
-Quote: "quote" is 0 or 1 line copied word for word from the page, or null. Null is better than a weak line. It must make sense out of context, carry a judgment, a contrast or a number, and be the author's own voice (not navigation, ads, boilerplate or a heading). "anchor" is the id of the single block it comes from and "text" is the page's original words from that block (keep the page language, do not translate or paraphrase, at most 200 characters).${userFirst(custom)}`;
+Quote: "quote" is 0 or 1 line copied word for word from the page, or null. Null is better than a weak line. It must make sense out of context, carry a judgment, a contrast or a number, and be the author's own voice (not navigation, ads, boilerplate or a heading). "anchor" is the id of the single block it comes from and "text" is the page's original words from that block (keep the page language, do not translate or paraphrase; one or two sentences, under 200 characters).${userFirst(custom)}`;
 
 export function summaryInput(title: string, url: string, content: string) {
   return `Title: ${title}\nURL: ${url}\n\n${content.slice(0, MAX_CONTENT_CHARS)}`;

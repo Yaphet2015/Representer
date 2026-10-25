@@ -74,7 +74,8 @@ const bareLinks = (s: string) => s.replace(/\]\([^)]*\)/g, '');
 export function validateQuote(raw: unknown, content: string): Excerpt | undefined {
   const q = raw as { text?: unknown; anchor?: unknown } | null | undefined;
   if (!q || typeof q.text !== 'string') return undefined;
-  const text = stripMarks(q.text).replace(/\s+/g, ' ').trim();
+  // the display adds its own quotation marks, so drop the ones wrapped around the text
+  const text = stripMarks(q.text).replace(/\s+/g, ' ').trim().replace(/^["'“”‘’「」『』«»]+|["'“”‘’「」『』«»]+$/g, '').trim();
   if (text.length < QUOTE_MIN || text.length > QUOTE_MAX) return undefined;
   const anchor = anchorId(q.anchor);
   const block = anchor ? blockTexts(content).get(anchor) : undefined;

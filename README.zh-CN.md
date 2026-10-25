@@ -15,11 +15,11 @@
 
 </div>
 
-**Representer** 是一个开源 Chrome 扩展：一键总结任意网页，生成概览、关键词高亮和分节要点，还能接着追问。BYOK（自带 API Key），兼容任意 OpenAI 接口（OpenAI、OpenRouter、DeepSeek、Ollama 等），数据只存在本地浏览器。
+**Representer** 是一个开源 Chrome 扩展：一键总结任意网页，生成带高亮的概览（核心短语、可点击的术语）、分节要点和一句原文摘录，还能接着追问。BYOK（自带 API Key），兼容任意 OpenAI 接口（OpenAI、OpenRouter、DeepSeek、Ollama 等），数据只存在本地浏览器。
 
 ## 功能
 
-- ✨ **AI 总结 + 要点**：用 [defuddle](https://github.com/kepano/defuddle) 提取正文，由模型生成概览、关键词高亮和分节大纲，每个分支用不同颜色区分，一眼扫完。
+- ✨ **AI 总结 + 要点**：用 [defuddle](https://github.com/kepano/defuddle) 提取正文，由模型生成概览和分节大纲：概览里只标一两处核心短语和几个术语（点术语会在对话里预填一个提问），每个分支用不同颜色区分，一眼扫完；页面里有好句子时，底部还会摘录一句原文，点击可跳到原处。
 - 💬 **继续对话**：基于总结和原文追问，回复流式输出，对话按页面保存。
 - 🌿 **支线会话 `/side`**：把当前对话分叉成独立支线，可随时切换、关闭。
 - ⚡ **自定义 Skills**：常用提示词做成一键按钮，支持 `{{input}}` / `{{selection}}` / `{{page_title}}` 占位符；最近使用的会出现在输入框上方。

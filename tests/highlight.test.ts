@@ -42,6 +42,12 @@ describe('parseMarks (tolerant)', () => {
     expect(stripMarks('a [[ x ]] b')).toBe('a x b');
     expect(kinds('a [[ ]] b')).toEqual([]);
   });
+  it('drops Markdown emphasis or code ticks the model put inside a mark', () => {
+    expect(kinds('a ==*the phrase*== b')).toEqual(['strong:the phrase']);
+    expect(kinds('a [[`/setup-pstack`]] b')).toEqual(['term:/setup-pstack']);
+    expect(kinds('a [[__init__]] b')).toEqual(['term:__init__']);
+    expect(kinds('a [[*args]] b')).toEqual(['term:*args']);
+  });
   it('is idempotent on its own output', () => {
     const s = 'x ==phrase one== y [[T]] z ==open';
     const once = serializeMarks(parseMarks(s));
@@ -151,6 +157,10 @@ describe('parseSummary with marks and quote', () => {
   it('ignores link targets in the page markdown and cannot validate without the page content', () => {
     expect(validateQuote({ text: 'for details on migrating', anchor: 'p3' }, content)).toBeTruthy();
     expect(parseSummary(raw({ quote: { text: 'cuts cold builds from 90s to 12s', anchor: 'p2' } })).quote).toBeUndefined();
+  });
+  it('drops quotation marks wrapped around the quote', () => {
+    expect(validateQuote({ text: '“cuts cold builds from 90s to 12s,” he said', anchor: 'p2' }, content)).toBeUndefined(); // the trailing words are not in the block
+    expect(validateQuote({ text: '"The cache rewrite cuts cold builds from 90s to 12s"', anchor: 'p2' }, content)?.text).toBe('The cache rewrite cuts cold builds from 90s to 12s');
   });
   it('strips marks from a quote before checking', () => {
     expect(validateQuote({ text: 'cuts ==cold builds== from 90s to 12s', anchor: 'p2' }, content)?.text).toBe('cuts cold builds from 90s to 12s');
