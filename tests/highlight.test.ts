@@ -176,6 +176,10 @@ describe('parseSummary with marks and quote', () => {
       expect(t('"The underlying bugs weren\'t new; what changed was our ability to find them," Kanhere said.')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
       expect(t('The underlying bugs weren\'t new; what changed was our ability to find them,"')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
     });
+    it('keeps everything when a quote is followed by more quoted text', () => {
+      const d = '[p1] “Builds got faster,” she said, “and also a lot cheaper to run today.”';
+      expect(validateQuote({ text: '“Builds got faster,” she said, “and also a lot cheaper to run today.”', anchor: 'p1' }, d)?.text).toBe('“Builds got faster,” she said, “and also a lot cheaper to run today.”'); // all marks are paired
+    });
     it('removes one-sided quotes at either end and dangling punctuation, keeps apostrophes', () => {
       expect(t('“The underlying bugs weren\'t new; what changed was our ability to find them')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
       expect(t('…, the underlying bugs weren\'t new; what changed was our ability to find them;”'.replace('…, ', ', '))).toBe('the underlying bugs weren\'t new; what changed was our ability to find them');

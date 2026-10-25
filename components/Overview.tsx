@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { parseMarks, stripMarks } from '@/lib/highlight';
+import { cleanQuoteText } from '@/lib/parse';
 import { jumpTo, liveIndex, resolveItem, type Anchors, type Item } from '@/lib/locate';
 import { useT } from './i18n';
 import type { Summary } from '@/lib/types';
@@ -16,7 +17,7 @@ const itemsOf = (summary: Summary): [string, Item][] => [...(quoteItem(summary) 
 const bulletItem = (sec: Summary['sections'][number], j: number): Item => ({ anchor: sec.anchors?.[j] || undefined, quote: sec.quotes?.[j] || undefined, text: stripMarks(sec.bullets[j]!) });
 /** the quote at the bottom of the overview */
 const QUOTE_KEY = 'quote';
-const quoteItem = (summary: Summary): Item | null => (summary.quote ? { anchor: summary.quote.anchor, text: summary.quote.text } : null);
+const quoteItem = (summary: Summary): Item | null => (summary.quote ? { anchor: summary.quote.anchor, text: cleanQuoteText(summary.quote.text) } : null); // also tidies quotes cached by earlier versions
 
 /**
  * Which items resolve to a block of the live page. Re-checked after DOM changes (debounced), so content
