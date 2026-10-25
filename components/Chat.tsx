@@ -10,6 +10,8 @@ import { SessionChips } from './SessionChips';
 import { SkillsRow } from './SkillsRow';
 import { Composer } from './Composer';
 import { Markdown } from './Markdown';
+import { CopyButton } from './CopyButton';
+import { messageMarkdown } from '@/lib/copy';
 import { slashItems, type SlashItem } from './SlashMenu';
 
 
@@ -120,18 +122,25 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, 
         {messages.map((m, i) => {
           const streaming = busy && i === messages.length - 1 && m.role === 'assistant';
           return m.role === 'user' ? (
-            <div key={i} className="flex justify-end pl-14" style={{ animation: 'pop-in 200ms cubic-bezier(0.23,1,0.32,1) both' }}>
-              <div className={`whitespace-pre-wrap break-words rounded-xl px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'bg-accent-tint text-accent-ink' : 'bg-field text-ink'}`} title={m.label ? m.content : undefined}>
+            <div key={i} data-msg="user" className="group flex items-end justify-end gap-1 pl-8" style={{ animation: 'pop-in 200ms cubic-bezier(0.23,1,0.32,1) both' }}>
+              <CopyButton reveal tip="bottom" className="mb-0.5" label={t.copyMessage} getText={() => messageMarkdown(m.content)} />
+              <div className={`min-w-0 whitespace-pre-wrap break-words rounded-xl px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'bg-accent-tint text-accent-ink' : 'bg-field text-ink'}`} title={m.label ? m.content : undefined}>
                 {m.label ?? m.content}
               </div>
             </div>
           ) : (
-            <div key={i} className="break-words text-[13px] leading-[1.65] text-ink">
-              {streaming && !m.content ? (
-                <span className="rp-thinking" role="status"><i /><i /><i /><span>{t.thinking}</span></span>
-              ) : (
-                <Markdown text={m.content} streaming={streaming} />
-              )}
+            <div key={i} data-msg="assistant" className="group">
+              <div className="break-words text-[13px] leading-[1.65] text-ink">
+                {streaming && !m.content ? (
+                  <span className="rp-thinking" role="status"><i /><i /><i /><span>{t.thinking}</span></span>
+                ) : (
+                  <Markdown text={m.content} streaming={streaming} />
+                )}
+              </div>
+              {/* fixed-height row under the message so the button appearing (after streaming) never moves the layout */}
+              <div className="-mb-0.5 mt-0.5 h-5">
+                {!streaming && m.content.trim() && <CopyButton reveal label={t.copyMessage} getText={() => messageMarkdown(m.content)} />}
+              </div>
             </div>
           );
         })}

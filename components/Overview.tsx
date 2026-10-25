@@ -5,6 +5,8 @@ import { jumpTo, liveIndex, resolveItem, type Anchors, type Item } from '@/lib/l
 import { useT } from './i18n';
 import type { Summary } from '@/lib/types';
 import { Sparkle } from './Icons';
+import { CopyButton } from './CopyButton';
+import { overviewMarkdown } from '@/lib/copy';
 
 /** One color per top-level branch; children inherit it. */
 const BRANCH_COLORS = ['#1677ff', '#13a8a8', '#722ed1', '#fa8c16', '#eb2f96', '#52c41a'];
@@ -114,6 +116,10 @@ export function Overview({ summary, anchors, pageTitle, onAsk }: { summary: Summ
       <section>
         <h3 className="mb-2 flex items-center gap-1.5 text-[15px] font-semibold text-zinc-900">
           <Sparkle className="h-4 w-4 text-accent" /> {t.overview}
+          <CopyButton
+            className="-my-1 ml-auto" tip="left" label={t.copyOverview}
+            getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', location.hostname.replace(/^www\./, '')) })}
+          />
         </h3>
         <p className="text-[13.5px] leading-[1.7] text-zinc-700">
           <Marked text={summary.overview} onAsk={onAsk} />
