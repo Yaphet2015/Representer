@@ -169,6 +169,29 @@ describe('parseSummary with marks and quote', () => {
     expect(validateQuote({ text: '“cuts cold builds from 90s to 12s,” he said', anchor: 'p2' }, content)).toBeUndefined(); // the trailing words are not in the block
     expect(validateQuote({ text: '"The cache rewrite cuts cold builds from 90s to 12s"', anchor: 'p2' }, content)?.text).toBe('The cache rewrite cuts cold builds from 90s to 12s');
   });
+  describe('quote cleanup after validation', () => {
+    const c = '[p1] "The underlying bugs weren\'t new; what changed was our ability to find them," Kanhere said.\n\n[p2] He called it “the most serious bug” he had ever seen, and that is a worry.\n\n[p3] Builds got faster, safer and cheaper all at once.';
+    const t = (text: string, anchor = 'p1') => validateQuote({ text, anchor }, c)?.text;
+    it('cuts a stray closing quote and the short attribution after it', () => {
+      expect(t('"The underlying bugs weren\'t new; what changed was our ability to find them," Kanhere said.')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
+      expect(t('The underlying bugs weren\'t new; what changed was our ability to find them,"')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
+    });
+    it('removes one-sided quotes at either end and dangling punctuation, keeps apostrophes', () => {
+      expect(t('“The underlying bugs weren\'t new; what changed was our ability to find them')).toBe('The underlying bugs weren\'t new; what changed was our ability to find them');
+      expect(t('…, the underlying bugs weren\'t new; what changed was our ability to find them;”'.replace('…, ', ', '))).toBe('the underlying bugs weren\'t new; what changed was our ability to find them');
+    });
+    it('keeps paired quotes inside the text', () => {
+      expect(t('He called it “the most serious bug” he had ever seen', 'p2')).toBe('He called it “the most serious bug” he had ever seen');
+    });
+    it('still requires the text to be part of the block (cleanup never rescues it)', () => {
+      expect(t('"The underlying bugs were new; what changed was our ability," he said', 'p1')).toBeUndefined();
+      expect(t('"Builds got faster, safer and cheaper all at once."', 'p1')).toBeUndefined();
+      expect(t('"Builds got faster, safer and cheaper all at once."', 'p3')).toBe('Builds got faster, safer and cheaper all at once.');
+    });
+    it('drops a quote that is too short once cleaned', () => {
+      expect(validateQuote({ text: '"Kanhere,"', anchor: 'p1' }, c)).toBeUndefined();
+    });
+  });
   it('strips marks from a quote before checking', () => {
     expect(validateQuote({ text: 'cuts ==cold builds== from 90s to 12s', anchor: 'p2' }, content)?.text).toBe('cuts cold builds from 90s to 12s');
   });

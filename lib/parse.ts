@@ -82,5 +82,37 @@ export function validateQuote(raw: unknown, content: string): Excerpt | undefine
   if (!block) return undefined;
   const key = keyOf(text);
   if (key.length < 6 || !keyOf(bareLinks(block)).includes(key)) return undefined;
-  return { text, anchor };
+  const clean = cleanQuoteText(text);
+  if (clean.length < QUOTE_MIN) return undefined;
+  return { text: clean, anchor };
+}
+
+const OPEN: Record<string, string> = { '“': '”', '「': '」', '『': '』', '«': '»' };
+const CLOSE = new Set(Object.values(OPEN));
+/** positions of quotation marks that have no partner (straight `"` pairs up with the next one) */
+function unpairedQuotes(s: string): number[] {
+  const stack: [string, number][] = []; const lone: number[] = [];
+  [...s].forEach((c, i) => {
+    if (c === '"') { const top = stack[stack.length - 1]; if (top?.[0] === '"') stack.pop(); else stack.push(['"', i]); }
+    else if (OPEN[c]) stack.push([OPEN[c]!, i]);
+    else if (CLOSE.has(c)) { const k = stack.map((x) => x[0]).lastIndexOf(c); if (k >= 0) stack.splice(k); else lone.push(i); }
+  });
+  return [...lone, ...stack.map((x) => x[1])].sort((a, b) => a - b);
+}
+const EDGE_PUNCT = /^[\s,;:，；：、\-–—]+|[\s,;:，；：、\-–—]+$/g;
+/**
+ * Tidy a quote that already passed validation: no one-sided quotation marks and no dangling punctuation at the
+ * ends. A stray closing mark followed by a short attribution (`…find them," Kanhere said.`) ends the quote there;
+ * any other unpaired mark is just removed. Paired marks inside the text stay.
+ */
+export function cleanQuoteText(text: string): string {
+  let out = text.trim();
+  const lone = unpairedQuotes(out);
+  if (lone.length) {
+    const last = lone[lone.length - 1]!; const chars = [...out];
+    const head = chars.slice(0, last).join('').replace(EDGE_PUNCT, '');
+    if ((chars[last] === '"' || CLOSE.has(chars[last]!)) && chars.length - last - 1 <= 40 && head.length >= QUOTE_MIN) out = head;
+    out = [...out].filter((_, i) => !unpairedQuotes(out).includes(i)).join('');
+  }
+  return out.replace(EDGE_PUNCT, '').replace(/\s{2,}/g, ' ').trim();
 }
