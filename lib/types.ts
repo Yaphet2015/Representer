@@ -10,7 +10,17 @@ export interface Section {
   /** legacy (short-lived format): verbatim page excerpts instead of ids; still read for cached summaries */
   quote?: string; quotes?: string[];
 }
-export interface Summary { overview: string; keyTerms: string[]; sections: Section[] }
+/** A line from the page itself: `anchor` is the id of the block it was taken from; the text was checked against that block. */
+export interface Excerpt { text: string; anchor: string }
+export interface Summary {
+  /** may carry inline marks: `==key phrase==` and `[[term]]` (see lib/highlight.ts) */
+  overview: string;
+  /** legacy (earlier versions listed terms separately); ignored when reading, so old cached summaries still display */
+  keyTerms?: string[];
+  sections: Section[];
+  /** 0-1 line quoted from the page, shown at the bottom of the overview */
+  quote?: Excerpt;
+}
 export interface ChatMessage { role: 'user' | 'assistant'; content: string; /** what the UI shows instead of content (e.g. a Skill run) */ label?: string }
 export interface Settings { baseUrl: string; apiKey: string; model: string; mock: boolean; /** extra user instructions added to the built-in prompts ('' = none) */ systemPrompt?: string; /** UI language override */ lang?: 'auto' | 'zh-CN' | 'en' }
 export const DEFAULT_SETTINGS: Settings = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', mock: false, systemPrompt: '', lang: 'auto' };

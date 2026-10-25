@@ -20,7 +20,7 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
     return { summarize: fail, chat: fail };
   }
   return {
-    summarize: async (title, url, content) => parseSummary(await runTurn(s, summaryInstructions(lang, s.systemPrompt), [], summaryInput(title, url, content))),
+    summarize: async (title, url, content) => parseSummary(await runTurn(s, summaryInstructions(lang, s.systemPrompt), [], summaryInput(title, url, content)), content),
     chat: (c, history, input, onDelta, signal) => runTurn(s, chatSystem(c.title, c.summary, c.content, s.systemPrompt), history, input, onDelta, signal),
   };
 }

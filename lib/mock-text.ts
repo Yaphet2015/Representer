@@ -7,8 +7,7 @@ const zh = {
   mockAutoDesc: '当前没有填写 API Key，所以会自动使用 Mock；填写 Key 后可自由开关。',
   mockHint: '没有填写 API Key 时会自动使用（localhost 等本地地址除外）。',
   mockPage: '这个页面',
-  mockOverview: (t: string) => `这是「${t}」的模拟总结。文章先提出一个核心观点，再用具体例子解释背后的机制，最后给出可以落地的实践建议。开启 Mock 模式后，不需要真实模型和 API Key 也能完整预览 Representer 的界面流程。`,
-  mockTerms: ['模拟总结', '核心观点', '实践建议', 'Mock 模式'],
+  mockOverview: (t: string) => `这是「${t}」的模拟总结。文章先提出一个==核心观点：先理解机制，再谈做法==，再用具体例子解释背后的机制，最后给出可以落地的[[实践建议]]。开启 [[Mock 模式]]后，不需要真实模型和 API Key 也能完整预览 Representer 的界面流程。`,
   mockSections: [
     ['核心观点', ['点明页面要解决的主要问题', '说明这个问题为什么重要', '为后文的论证做铺垫']],
     ['工作原理', ['把机制拆成几个清晰的步骤', '每一步都配一个例子', '指出取舍和边界情况']],
@@ -23,8 +22,7 @@ const en: typeof zh = {
   mockAutoDesc: 'No API key is set, so mock mode is used automatically. Add a key to toggle it freely.',
   mockHint: 'Used automatically when no API key is set (except for local addresses such as localhost).',
   mockPage: 'this page',
-  mockOverview: (t) => `This is a sample summary of “${t}”. The article opens with a core idea, explains the mechanism behind it with concrete examples, and ends with practical advice. In mock mode you can preview the whole Representer experience without a real model or API key.`,
-  mockTerms: ['sample summary', 'core idea', 'practical advice', 'mock mode'],
+  mockOverview: (t) => `This is a sample summary of “${t}”. The article opens with ==a core idea: understand the mechanism before the method==, explains it with concrete examples, and ends with [[practical advice]]. In [[mock mode]] you can preview the whole Representer experience without a real model or API key.`,
   mockSections: [
     ['Core idea', ['States the main problem the page tackles', 'Explains why the problem matters', 'Sets up the argument that follows']],
     ['How it works', ['Breaks the mechanism into clear steps', 'Pairs each step with an example', 'Points out trade-offs and edge cases']],

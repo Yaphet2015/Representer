@@ -13,7 +13,7 @@ import { Markdown } from './Markdown';
 import { slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount }: { url: string; pageTitle: string; disabled: boolean; reloadKey: number; onSideCount?: (n: number) => void }) {
+export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, onDraftUsed }: { url: string; pageTitle: string; disabled: boolean; reloadKey: number; onSideCount?: (n: number) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [input, setInput] = useState('');
@@ -24,6 +24,12 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount }: { url
   const lastSelection = useRef('');
   const lang = useLang();
   const skillStore = useRef(createSkillStore(chromeKV)).current;
+
+  useEffect(() => { // a clicked term in the overview: prefill the input and focus it, the user decides whether to send
+    if (!draft) return;
+    setInput(draft.text); onDraftUsed?.();
+    requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sid = state?.active ?? MAIN_ID;
   const messages: ChatMessage[] = (state && getSession(state, sid)?.messages) || [];

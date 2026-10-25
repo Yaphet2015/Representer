@@ -19,7 +19,7 @@ describe('mock provider', () => {
     await vi.advanceTimersByTimeAsync(100);
     const s = await p; vi.useRealTimers();
     expect(isSummary(s)).toBe(true); expect(s.sections).toHaveLength(3);
-    for (const t of s.keyTerms) expect(s.overview).toContain(t);
+    expect(s.overview).toMatch(/==.+==/); expect(s.overview).toMatch(/\[\[.+\]\]/);
     expect(buildMockSummary('X').sections.every((x) => x.bullets.length >= 2)).toBe(true);
   });
   it('points its sections and bullets at block ids of the page content', () => {
