@@ -18,6 +18,46 @@ export function isSummary(v: any): v is Summary {
       && optStr(s.anchor) && optStrs(s.anchors) && optStr(s.quote) && optStrs(s.quotes));
 }
 
+/** Stable numeric ordering in keyed slots only; unkeyed items stay in place. */
+function anchoredOrder(keys: (number | undefined)[]): number[] {
+  const keyed = keys.flatMap((key, i) => key === undefined ? [] : [{ key, i }]);
+  keyed.sort((a, b) => a.key - b.key);
+  let next = 0;
+  return keys.map((key, i) => key === undefined ? i : keyed[next++]!.i);
+}
+
+/**
+ * Pure ordering for newly generated summaries, before highlight limits are applied.
+ * Parallel bullet fields travel together; missing anchors pin their slots. Sections
+ * move only with >= 50% bullet coverage. With content, unknown block ids are unkeyed;
+ * without content, only the id's syntax / positive safe integer can be checked.
+ */
+export function orderByAnchors(sections: Section[], content?: string): Section[] {
+  const blocks = content === undefined ? undefined : blockTexts(content);
+  const keyOfAnchor = (anchor: unknown): number | undefined => {
+    const id = anchorId(anchor), n = Number(id.slice(1));
+    return id && Number.isSafeInteger(n) && n > 0 && (!blocks || blocks.has(id)) ? n : undefined;
+  };
+  let total = 0, anchored = 0;
+  const ordered = sections.map((section) => {
+    const keys = section.bullets.map((_, i) => keyOfAnchor(section.anchors?.[i]));
+    total += keys.length;
+    anchored += keys.filter((key) => key !== undefined).length;
+    const order = anchoredOrder(keys);
+    if (order.every((index, i) => index === i)) return section;
+    return {
+      ...section,
+      bullets: order.map((i) => section.bullets[i]!),
+      ...(section.anchors ? { anchors: order.map((i) => section.anchors![i] ?? '') } : {}),
+      ...(section.quotes ? { quotes: order.map((i) => section.quotes![i] ?? '') } : {}),
+    };
+  });
+  if (!anchored || anchored * 2 < total) return ordered;
+  const keys = ordered.map((section) => keyOfAnchor(section.anchor)
+    ?? section.bullets.map((_, i) => keyOfAnchor(section.anchors?.[i])).find((key) => key !== undefined));
+  return anchoredOrder(keys).map((i) => ordered[i]!);
+}
+
 /** Extract and validate the summary JSON returned by the LLM (tolerates code fences / prose). */
 export function parseSummary(text: string, content?: string): Summary {
   let s = text.trim();
@@ -44,7 +84,7 @@ export function parseSummary(text: string, content?: string): Summary {
       if (quotes.some(Boolean)) sec.quotes = quotes;
       return sec;
     });
-  const summary: Summary = { overview: raw.overview.trim(), sections };
+  const summary: Summary = { overview: raw.overview.trim(), sections: orderByAnchors(sections, content) };
   applyMarks(summary);
   const quote = content ? validateQuote(raw.quote, content) : undefined;
   if (quote) summary.quote = quote;

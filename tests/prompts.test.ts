@@ -31,6 +31,15 @@ describe('custom system prompt', () => {
 });
 
 describe('summary contract', () => {
+  it('requires page order, intact numbered steps and one primary source block per bullet', () => {
+    const p = summaryInstructions('en');
+    expect(p).toContain('ascending anchor number');
+    expect(p).toContain('put overall conclusions in "overview"');
+    expect(p).toContain('preserve the original order and numbering without merging, skipping or swapping');
+    expect(p).toContain("keep each step's points together");
+    expect(p).toContain('Each bullet must mainly refer to one block');
+  });
+
   it('asks for block ids on titles and bullets, and the quote is anchored to a block too', () => {
     const p = summaryInstructions('zh-CN');
     expect(p).toContain('"bullets": [{"text": string, "anchor": string}]');
