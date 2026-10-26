@@ -15,7 +15,7 @@ English · [简体中文](./README.zh-CN.md)
 
 </div>
 
-**Representer** is an open-source Chrome extension that summarizes any web page: an overview with a few highlighted takeaways, clickable terms and a quote from the page, plus a section-by-section outline of key points. You can then keep asking questions about the page. It is **BYOK**: it works with any OpenAI-compatible API (OpenAI, OpenRouter, DeepSeek, Ollama, …), and all data stays in your browser.
+**Representer** is an open-source Chrome extension that summarizes any web page: an overview with a few highlighted takeaways, clickable terms and a “Key passage” quote, plus a section-by-section outline of key points. You can then keep asking questions about the page. It is **BYOK**: it works with any OpenAI-compatible API (OpenAI, OpenRouter, DeepSeek, Ollama, …), and all data stays in your browser.
 
 ## Features
 

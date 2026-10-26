@@ -108,18 +108,27 @@ function Excerpt({ summary, anchors, enabled, pageTitle }: { summary: Summary; a
   );
 }
 
-export function Overview({ summary, anchors, pageTitle, onAsk }: { summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void }) {
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt }: { fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void }) {
   const t = useT();
   const ok = useLocatable(summary, anchors);
   return (
     <div className="space-y-5 px-4 py-4">
       <section>
-        <h3 className="mb-2 flex items-center gap-1.5 text-[15px] font-semibold text-zinc-900">
+        <h3 className="mb-2 flex flex-nowrap items-center gap-1.5 text-[15px] font-semibold text-zinc-900">
           <Sparkle className="h-4 w-4 text-accent" /> {t.overview}
-          <CopyButton
-            className="-my-1 ml-auto" tip="left" label={t.copyOverview}
-            getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', location.hostname.replace(/^www\./, '')) })}
-          />
+          <span className="ml-auto flex min-w-0 items-center gap-1.5">
+            {fromCache && (
+              <span data-from-cache aria-label={t.cached}
+                title={cachedAt && Number.isFinite(cachedAt) ? t.generatedAt(new Date(cachedAt).toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })) : undefined}
+                className="max-w-[80px] truncate text-[11px] font-normal text-ink-3">
+                {t.cached}
+              </span>
+            )}
+            <CopyButton
+              className="-my-1 shrink-0" tip="left" label={t.copyOverview}
+              getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', location.hostname.replace(/^www\./, '')) })}
+            />
+          </span>
         </h3>
         <p className="text-[13.5px] leading-[1.7] text-zinc-700">
           <Marked text={summary.overview} onAsk={onAsk} />

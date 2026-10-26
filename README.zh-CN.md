@@ -15,7 +15,7 @@
 
 </div>
 
-**Representer** 是一个开源 Chrome 扩展：一键总结任意网页，生成带高亮的概览（核心短语、可点击的术语）、分节要点和一句原文摘录，还能接着追问。BYOK（自带 API Key），兼容任意 OpenAI 接口（OpenAI、OpenRouter、DeepSeek、Ollama 等），数据只存在本地浏览器。
+**Representer** 是一个开源 Chrome 扩展：一键总结任意网页，生成带高亮的概览（核心短语、可点击的术语）、分节要点和一句核心原文，还能接着追问。BYOK（自带 API Key），兼容任意 OpenAI 接口（OpenAI、OpenRouter、DeepSeek、Ollama 等），数据只存在本地浏览器。
 
 ## 功能
 
