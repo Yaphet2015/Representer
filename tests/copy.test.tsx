@@ -17,22 +17,27 @@ const summary: Summary = {
 };
 
 describe('overviewMarkdown', () => {
-  const md = overviewMarkdown(summary, { pageTitle: 'PHP [[intro]]', excerptTitle: 'From the page', excerptFrom: 'PHP intro · example.com' });
+  const md = overviewMarkdown(summary, { pageTitle: 'PHP [[intro]]', excerptTitle: 'Key passage', excerptFrom: 'PHP intro · example.com' });
   it('keeps the Markdown structure', () => {
     expect(md).toBe([
       '# PHP intro',
       'PHP runs 70% of the world’s websites and Wiz found two bugs. See unclosed and open',
       '## What it is\n- Used by WordPress and others.\n- Run /setup-pstack first then go.',
       '## Empty section',
-      '## From the page\n\n> “The bugs weren’t new.”\n>\n> — PHP intro · example.com',
+      '## Key passage\n\n> “The bugs weren’t new.”\n>\n> — PHP intro · example.com',
     ].join('\n\n'));
+  });
+  it('uses the localized Key passage heading without cache status', () => {
+    const zh = overviewMarkdown(summary, { excerptTitle: '核心原文' });
+    expect(zh).toContain('## 核心原文');
+    expect(zh).not.toContain('来自缓存'); expect(md).not.toContain('Cached');
   });
   it('has no highlight marks and no block ids', () => {
     expect(md).not.toMatch(/==|\[\[|\]\]|\[p\d+\]/);
   });
   it('omits the excerpt section when there is no quote and the title when there is none', () => {
     const m = overviewMarkdown({ ...summary, quote: undefined });
-    expect(m).not.toContain('>'); expect(m).not.toContain('From the page'); expect(m.startsWith('PHP runs')).toBe(true);
+    expect(m).not.toContain('>'); expect(m).not.toContain('Key passage'); expect(m.startsWith('PHP runs')).toBe(true);
   });
   it('quote without a source still copies as a quote; empty summaries copy as empty text', () => {
     expect(overviewMarkdown({ overview: 'x', sections: [], quote: { text: 'Hello there world', anchor: 'p1' } })).toBe('x\n\n> “Hello there world”');

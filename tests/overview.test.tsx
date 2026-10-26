@@ -49,3 +49,22 @@ describe('Overview excerpt', () => {
     expect(html(q)).not.toContain('data-excerpt');
   });
 });
+
+describe('Overview cache indicator', () => {
+  const s: Summary = { overview: 'o', sections: [] };
+  it('shows Cached left of copy, with an optional generation time', () => {
+    const h = renderToStaticMarkup(<Overview summary={s} fromCache cachedAt={new Date(2026, 9, 26, 18, 4).getTime()} />);
+    expect(h).toContain('data-from-cache'); expect(h).toContain('aria-label="Cached"');
+    expect(h).toContain('Generated at 2026-10-26 18:04');
+    expect(h.indexOf('data-from-cache')).toBeLessThan(h.indexOf('aria-label="Copy overview"'));
+    expect(h).toContain('text-ink-3');
+  });
+  it('omits the indicator for freshly generated summaries', () => {
+    expect(renderToStaticMarkup(<Overview summary={s} fromCache={false} />)).not.toContain('data-from-cache');
+    expect(renderToStaticMarkup(<Overview summary={s} />)).not.toContain('data-from-cache');
+  });
+  it('does not invent a timestamp', () => {
+    const h = renderToStaticMarkup(<Overview summary={s} fromCache />);
+    expect(h).toContain('data-from-cache'); expect(h).not.toContain('Generated at');
+  });
+});

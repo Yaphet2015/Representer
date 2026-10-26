@@ -25,6 +25,7 @@ export function App() {
   const [url, setUrl] = useState(() => normalizeUrl(location.href));
   const [title, setTitle] = useState(document.title);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [cacheInfo, setCacheInfo] = useState<{ createdAt?: number } | null>(null);
   const [anchors, setAnchors] = useState<Anchors | undefined>(undefined);
   const [chatKey, setChatKey] = useState(0);
   const [sideCount, setSideCount] = useState(0);
@@ -45,12 +46,13 @@ export function App() {
   const run = useCallback(async (force: boolean) => {
     const u = normalizeUrl(location.href);
     const t0 = Date.now();
+    setCacheInfo(null);
     setUrl(u); setLoading(true); setError(''); setFlash('');
     if (force) { setSummary(null); setTab('overview'); setMin(false); }
     try {
       if (!force) {
         const c = await rpc('getCached', { url: u });
-        if (c.ok && c.cached) { setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
+        if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
       }
       const page = extractPage();
       setTitle(page.title);
@@ -127,7 +129,7 @@ export function App() {
                     {!loading && error && <ErrorView error={error} retry={() => run(true)} />}
                     {!loading && summary && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-                        <Overview summary={summary} anchors={anchors} pageTitle={title} onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); setMin(false); }} />
+                        <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); setMin(false); }} />
                       </motion.div>
                     )}
                   </div>

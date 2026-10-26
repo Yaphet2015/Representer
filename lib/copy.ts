@@ -16,7 +16,7 @@ export const messageMarkdown = (text: string) => withoutBlockIds(text).trim();
 export interface OverviewCopyOpts {
   /** page title, becomes the `#` heading when given */
   pageTitle?: string;
-  /** heading of the excerpt section */
+  /** localized heading of the excerpt section (核心原文 / Key passage) */
   excerptTitle?: string;
   /** "title · site" shown under the excerpt */
   excerptFrom?: string;
