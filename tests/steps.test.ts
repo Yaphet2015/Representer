@@ -49,6 +49,44 @@ describe('step sequences', () => {
 
 describe('step coverage', () => {
   const steps = detectSteps(content);
+  it.each([
+    '[p7] ## References',
+    '## [p7] References',
+    '[p7] References',
+    '[p7] ## Appendix',
+    '[p7] # Appendix',
+    '## Appendix\n\n[p7] Appendix introduction.',
+    '[p7] ### References',
+  ])('does not count a following independent section: %s', (heading) => {
+    const detected = detectSteps(`${content}\n\n${heading}\n\n[p8] Further reading.`);
+    expect(detected.map(({ start, end }) => [start, end])).toEqual([[1, 3], [3, 5], [5, 7]]);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p8'))).toEqual([detected[2]]);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p7'))).toEqual([detected[2]]);
+    expect(missingSteps(detected, summary('p1', 'p3'))).toEqual([detected[2]]);
+    expect(missingSteps(detected, summary('p2', 'p4', 'p6', 'p8'))).toEqual([]);
+  });
+  it('retains nested step content but stops at an unnumbered peer heading', () => {
+    const detected = detectSteps(`${content}\n\n[p7] ### Troubleshooting\n\n[p8] Retry verification.\n\n[p9] ## Appendix\n\n[p10] Further reading.`);
+    expect(detected[2]!.end).toBe(9);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p8'))).toEqual([]);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p10'))).toEqual([detected[2]]);
+  });
+  it('uses heading levels when Markdown places headings before markers', () => {
+    const detected = detectSteps(`${content.replace(/\[p(\d+)\] ##/g, '## [p$1]')}\n\n### [p7] Details\n\n[p8] Verification details.\n\n## [p9] Appendix\n\n[p10] Aside.`);
+    expect(detected[2]!.end).toBe(9);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p8'))).toEqual([]);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p10'))).toEqual([detected[2]]);
+  });
+  it('bounds earlier steps too, without changing conservative sequence detection', () => {
+    const detected = detectSteps('[p1] ## Step 1. A\n\n[p2] Body\n\n[p3] ## Background\n\n[p4] Aside\n\n[p5] ## Step 2. B\n\n[p6] Body\n\n[p7] ## Step 3. C\n\n[p8] Body');
+    expect(detected.map(({ start, end }) => [start, end])).toEqual([[1, 3], [5, 7], [7, 9]]);
+    expect(missingSteps(detected, summary('p4', 'p6', 'p8'))).toEqual([detected[0]]);
+  });
+  it('ignores heading boundaries inside fenced examples', () => {
+    const detected = detectSteps(`${content}\n\n\`\`\`md\n[p7] ## Appendix\n\`\`\`\n\n[p8] More verification details.`);
+    expect(detected[2]!.end).toBe(9);
+    expect(missingSteps(detected, summary('p1', 'p3', 'p8'))).toEqual([]);
+  });
   it('uses half-open ranges and section or bullet anchors', () => {
     const s = summary('p2', 'p5'); s.sections[0]!.anchor = 'p3';
     expect(missingSteps(steps, s)).toEqual([]);
@@ -63,6 +101,14 @@ describe('step coverage', () => {
 });
 
 describe('one quality retry', () => {
+  it('retries once when references substitute for the last step, even if still incomplete', async () => {
+    const withReferences = `${content}\n\n[p7] ## References\n\n[p8] Further reading.`;
+    const generate = vi.fn().mockResolvedValue(raw('p1', 'p3', 'p8'));
+    const result = await summarizeWithSteps(withReferences, generate);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]![0]).toContain('Step 3. Verify [p5]');
+    expect(missingSteps(detectSteps(withReferences), result).map((s) => s.number)).toEqual([3]);
+  });
   it.each([
     [['p1'], ['p1', 'p3', 'p5'], 'p1,p3,p5'],
     [['p1', 'p3'], ['p1'], 'p1,p3'],

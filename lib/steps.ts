@@ -8,14 +8,29 @@ export interface Step { number: number; title: string; start: number; end: numbe
 export function detectSteps(content: string): Step[] {
   const blocks = [...blockTexts(content)].map(([id, text]) => ({ id: Number(id.slice(1)), text }));
   const excluded = new Set<number>();
+  const boundaries: { id: number; level: number }[] = [];
+  const headingLevels = new Map<number, number>();
+  const markers = [...content.matchAll(MARKER_RE)];
+  let offset = 0, markerIndex = 0;
   let referenceLevel: number | undefined;
   let fenced = false;
   for (const line of content.split('\n')) {
     const clean = line.replace(MARKER_RE, '').trim();
     if (/^(```|~~~)/.test(clean)) fenced = !fenced;
     const heading = clean.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+    const reference = /^(?:#{1,6}\s+)?(?:references|bibliography|footnotes|table of contents|contents|目录|参考文献|脚注)\s*[:：]?$/i.test(clean);
+    // Read heading syntax from the whole line: Markdown may put ## before [pN].
+    // An unmarked heading ends coverage at the next anchorable block.
+    while (markerIndex < markers.length && markers[markerIndex]!.index! < offset) markerIndex++;
+    const marker = markers[markerIndex];
+    if (!fenced && marker && (heading || reference)) {
+      const id = Number(marker[1]);
+      if (heading) headingLevels.set(id, heading[1]!.length);
+      boundaries.push({ id, level: reference ? 0 : heading![1]!.length });
+    }
+    offset += line.length + 1;
     if (heading && referenceLevel !== undefined && heading[1]!.length <= referenceLevel) referenceLevel = undefined;
-    if (/^(?:#{1,6}\s+)?(?:references|bibliography|footnotes|table of contents|contents|目录|参考文献|脚注)\s*[:：]?$/i.test(clean)) referenceLevel = heading?.[1]?.length ?? 6;
+    if (reference) referenceLevel = heading?.[1]?.length ?? 6;
     if (fenced || referenceLevel !== undefined) for (const m of line.matchAll(MARKER_RE)) excluded.add(Number(m[1]));
   }
   const candidates: (Step & { family: string })[] = [];
@@ -45,7 +60,13 @@ export function detectSteps(content: string): Step[] {
   const best = groups.filter((g) => g.length >= 3 && g[0]!.number <= 1 && g.every((s, i) => !i || s.number === g[i - 1]!.number + 1))
     .sort((a, b) => b.length - a.length || a[0]!.start - b[0]!.start)[0];
   const end = Math.max(0, ...blocks.map((b) => b.id)) + 1;
-  return best?.map((s, i) => ({ number: s.number, title: s.title, start: s.start, end: best[i + 1]?.start ?? end })) ?? [];
+  return best?.map((s, i) => {
+    // A step owns its subheadings, but not a peer/ancestor section or references.
+    // Without a heading level, any following heading is a conservative boundary.
+    const level = headingLevels.get(s.start) ?? 6;
+    const boundary = boundaries.find((b) => b.id > s.start && b.level <= level)?.id ?? end;
+    return { number: s.number, title: s.title, start: s.start, end: Math.min(best[i + 1]?.start ?? end, boundary) };
+  }) ?? [];
 }
 
 /** Only section/bullet anchors count; the overview and decorative excerpt do not. */
