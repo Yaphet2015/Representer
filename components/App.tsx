@@ -11,6 +11,7 @@ import { Check, Close, Fork, Minus, Refresh, Restore } from './Icons';
 import { Overview } from './Overview';
 import { ErrorView, NoOverview } from './EmptyStates';
 import { Segmented, type Tab } from './Segmented';
+import { MinTitle } from './MinTitle';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { useResizableWidth } from './useResizableWidth';
@@ -128,13 +129,13 @@ export function App() {
           {/* top row: tabs on the left, compact icon actions on the right (also the slim bar when minimized) */}
           <div
             data-top-row
-            className={`flex h-11 shrink-0 items-center justify-between gap-2 pl-3 pr-2 ${min ? 'cursor-pointer hover:bg-zinc-50' : 'border-b border-zinc-100'}`}
+            className={`flex h-12 shrink-0 items-center gap-2 pl-3 pr-2 ${min ? 'cursor-pointer hover:bg-zinc-50' : 'border-b border-zinc-100'}`}
             title={min ? t.clickToRestore : undefined}
             onClick={() => min && setMin(false)}
           >
-            <Segmented value={tab} onChange={(t) => { setTab(t); setMin(false); }} className="mx-0" />
-            {min && <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">{loading ? <Shimmer>{t.summarizing}</Shimmer> : title}</span>}
-            <div className="flex shrink-0 items-center gap-0.5 text-ink-2">
+            <Segmented value={tab} onChange={(t) => { setTab(t); setMin(false); }} generating={loading && tab === 'chat'} compact={min} />
+            {min && <MinTitle>{loading ? <Shimmer>{t.summarizing}</Shimmer> : title}</MinTitle>}
+            <div className="ml-auto flex shrink-0 items-center gap-0.5 text-ink-2">
               {/* Refresh re-summarizes, so it only belongs to the overview. In chat the slot holds "new side chat" until side chats exist (then it moves into the session tabs). */}
               {tab === 'overview' ? (
                 <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); run(true); }} disabled={loading}
