@@ -1,8 +1,8 @@
 import { createCache } from '@/lib/cache';
-import { usedAnchors } from '@/lib/locate';
 import { CHAT_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
 import { listModels, testConnection } from '@/lib/models';
 import { providerFor } from '@/lib/provider';
+import { chatContext, createSummarizeRunner } from '@/lib/summarize-run';
 import { appendMessages, closeSession, forkSession, setActive } from '@/lib/sessions';
 import { messages, resolveLang, uiLanguage } from '@/lib/i18n';
 import { chromeKV, loadSettings } from '@/lib/storage';
@@ -12,6 +12,7 @@ const COMMAND = 'toggle-overlay';
 
 export default defineBackground(() => {
   const cache = createCache(chromeKV);
+  const summarizer = createSummarizeRunner(cache);
   /** settings + resolved UI language */
   const ctx = async () => { const s = await loadSettings(); return { s, lang: resolveLang(s.lang, uiLanguage()) }; };
 
@@ -30,15 +31,12 @@ export default defineBackground(() => {
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
   const handlers: Handlers = {
     getCached: async ({ url }) => ({ cached: await cache.getSummary(url) }),
-    summarize: async ({ url, title, content, force, anchors: all }) => {
+    summarize: async ({ url, title, content, force, anchors }) => {
       if (!force) { const c = await cache.getSummary(url); if (c) return { summary: c.summary, anchors: c.anchors }; }
       const { s, lang } = await ctx();
-      const summary = await providerFor(s, lang).summarize(title, url, content);
-      const anchors = usedAnchors(summary, all); // keep only the fingerprints the summary points at
-      await cache.clearSummary(url);
-      await cache.setSummary(url, { summary, content, title, anchors });
-      return { summary, anchors };
+      return summarizer.run({ url, title, content, anchors }, (signal) => providerFor(s, lang).summarize(title, url, content, signal));
     },
+    cancelSummarize: async ({ url }) => { summarizer.cancel(url); return {}; },
     getShortcut: async () => ({ shortcut: (await chrome.commands.getAll()).find((c) => c.name === COMMAND)?.shortcut ?? '' }),
     listModels: async ({ settings }) => ({ models: await listModels(settings, fetch, undefined, (await ctx()).lang) }),
     testConnection: async ({ settings }) => ({ result: await testConnection(settings) }),
@@ -64,10 +62,11 @@ export default defineBackground(() => {
     const ac = new AbortController();
     port.onDisconnect.addListener(() => ac.abort());
     const post = (e: ChatEvent) => { try { port.postMessage(e); } catch { /* port closed */ } };
-    port.onMessage.addListener(async ({ url, text, sid, label }: ChatRequest) => {
+    port.onMessage.addListener(async ({ url, text, sid, label, page }: ChatRequest) => {
       try {
         const { s, lang } = await ctx();
-        const c = await cache.getSummary(url);
+        // no summary (cancelled, failed, still running): chat over the page text sent along, as an attachment
+        const c = await chatContext(cache, url, page);
         if (!c) throw new Error(messages(lang).summaryExpired);
         const history = ((await cache.getSessions(url)).sessions.find((x) => x.id === sid)?.messages ?? []).filter((m) => m.content);
         const out = await providerFor(s, lang).chat(c, history, text, (delta) => post({ delta }), ac.signal);

@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLang, useT } from './i18n';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { extractPage } from '@/lib/extract';
 import { normalizeUrl } from '@/lib/url';
 import type { Summary } from '@/lib/types';
@@ -9,6 +9,7 @@ import { bus } from './bus';
 import { Chat } from './Chat';
 import { Check, Close, Fork, Minus, Refresh, Restore } from './Icons';
 import { Overview } from './Overview';
+import { ErrorView, NoOverview } from './EmptyStates';
 import { Segmented, type Tab } from './Segmented';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
@@ -32,6 +33,18 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
+  /** the automatic summary was cancelled and there is no overview to show */
+  const [cancelled, setCancelled] = useState(false);
+  /** bumped by every run and cancel, so a run that was cancelled or replaced never touches the UI */
+  const runId = useRef(0);
+  const chatBusy = useRef(false);
+  const pageRef = useRef<{ url: string; page: ReturnType<typeof extractPage> } | null>(null);
+  /** the page's text for chat when there is no summary; extracted once per page */
+  const getPage = useCallback(() => {
+    const u = normalizeUrl(location.href);
+    if (pageRef.current?.url !== u) pageRef.current = { url: u, page: extractPage() };
+    return pageRef.current.page;
+  }, []);
   /** text a clicked term puts into the chat input (not sent) */
   const [draft, setDraft] = useState<{ text: string; id: number } | null>(null);
   const { width, resizing, handleProps } = useResizableWidth();
@@ -44,27 +57,48 @@ export function App() {
   }, [lang]);
 
   const run = useCallback(async (force: boolean) => {
+    const id = ++runId.current;
+    const stale = () => id !== runId.current;
     const u = normalizeUrl(location.href);
     const t0 = Date.now();
     setCacheInfo(null);
-    setUrl(u); setLoading(true); setError(''); setFlash('');
+    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false);
     if (force) { setSummary(null); setTab('overview'); setMin(false); }
     try {
       if (!force) {
         const c = await rpc('getCached', { url: u });
+        if (stale()) return;
         if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
       }
-      const page = extractPage();
+      pageRef.current = null;
+      const page = getPage();
       setTitle(page.title);
       const r = await rpc('summarize', { url: u, title: page.title, content: page.content, anchors: page.anchors, force });
+      if (stale()) return; // cancelled (or replaced) meanwhile
       if (!r.ok) throw new Error(r.error);
+      if ('cancelled' in r) { setCancelled(true); return; }
       // keep the skeleton visible briefly so a fast re-summarize still reads as "something happened"
       if (force) await new Promise((res) => setTimeout(res, Math.max(0, 500 - (Date.now() - t0))));
-      setSummary(r.summary); setAnchors(r.anchors); setChatKey((k) => k + 1);
+      if (stale()) return;
+      setSummary(r.summary); setAnchors(r.anchors);
+      if (force || !chatBusy.current) setChatKey((k) => k + 1); // a reply streaming in the chat must not be reloaded away
       if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 2000); }
     } catch (e: any) {
-      setError(String(e.message ?? e));
-    } finally { setLoading(false); }
+      if (!stale()) setError(String(e.message ?? e));
+    } finally { if (!stale()) setLoading(false); }
+  }, [getPage]);
+
+  /** Stop the running summary: the request is aborted in the background and nothing is cached. */
+  const cancel = useCallback(async () => {
+    runId.current++;
+    const u = normalizeUrl(location.href);
+    rpc('cancelSummarize', { url: u });
+    setError('');
+    // a cancelled refresh falls back to the overview that is still cached, if any
+    const c = await rpc('getCached', { url: u });
+    if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setCancelled(false); }
+    else setCancelled(true);
+    setLoading(false);
   }, []);
 
   useEffect(() => { run(false); }, [run]);
@@ -108,7 +142,7 @@ export function App() {
                   {flash && !loading ? <Check className="h-4 w-4 text-green" /> : <Refresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />}
                 </Button>
               ) : !min && sideCount === 0 && (
-                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); bus.emit('fork'); }} disabled={!summary || loading}
+                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); bus.emit('fork'); }} 
                   title={t.newSide} aria-label={t.newSide}>
                   <Fork className="h-4 w-4" />
                 </Button>
@@ -125,8 +159,9 @@ export function App() {
               <div className="relative min-h-0 flex-1">
                 {tab === 'overview' ? (
                   <div className="rp-scroll h-full overflow-y-auto">
-                    {loading && <><div className="px-4 pt-4"><LoadingState label={t.summarizingLabel} /></div><Skeleton /></>}
-                    {!loading && error && <ErrorView error={error} retry={() => run(true)} />}
+                    {loading && <><div className="flex items-center justify-between gap-2 px-4 pt-4"><LoadingState label={t.summarizingLabel} /><Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button></div><Skeleton /></>}
+                    {!loading && error && <ErrorView error={error} retry={() => run(true)} onChat={() => setTab('chat')} />}
+                    {!loading && !error && !summary && cancelled && <NoOverview onStart={() => run(true)} onChat={() => setTab('chat')} />}
                     {!loading && summary && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
                         <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); setMin(false); }} />
@@ -134,7 +169,7 @@ export function App() {
                     )}
                   </div>
                 ) : (
-                  <Chat url={url} pageTitle={title} reloadKey={chatKey} disabled={!summary || loading} onSideCount={setSideCount} draft={draft} onDraftUsed={() => setDraft(null)} />
+                  <Chat url={url} pageTitle={title} reloadKey={chatKey} hasSummary={!!summary} getPage={getPage} onBusy={(b) => { chatBusy.current = b; }} onSideCount={setSideCount} draft={draft} onDraftUsed={() => setDraft(null)} />
                 )}
               </div>
             </>
@@ -142,17 +177,5 @@ export function App() {
         </motion.div>
       )}
     </AnimatePresence>
-  );
-}
-
-function ErrorView({ error, retry }: { error: string; retry: () => void }) {
-  const t = useT();
-  return (
-    <div className="space-y-3 p-6 text-center text-[13px] text-zinc-600">
-      <p>{t.summaryFailed(error)}</p>
-      <div className="flex justify-center gap-2">
-        <Button variant="secondary" size="sm" onClick={retry}>{t.retry}</Button>
-      </div>
-    </div>
   );
 }
