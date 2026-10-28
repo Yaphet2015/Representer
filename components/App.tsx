@@ -125,7 +125,7 @@ export function App() {
               <div className="relative min-h-0 flex-1">
                 {tab === 'overview' ? (
                   <div className="rp-scroll h-full overflow-y-auto">
-                    {loading && <><div className="px-4 pt-4"><LoadingState label={t.summarizingLabel} /></div><Skeleton /></>}
+                    {loading && <div className="flex h-full flex-col overflow-hidden"><div className="shrink-0 px-4 pt-4"><LoadingState label={t.summarizingLabel} /></div><div className="min-h-0 flex-1"><Skeleton /></div></div>}
                     {!loading && error && <ErrorView error={error} retry={() => run(true)} />}
                     {!loading && summary && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
