@@ -8,7 +8,9 @@ import type { Anchors } from './locate';
 /** request → response payload, keyed by message type */
 export interface Api {
   getCached: { req: { url: string }; res: { cached: CachedSummary | null } };
-  summarize: { req: { url: string; title: string; content: string; force: boolean; anchors?: Anchors }; res: { summary: Summary; anchors?: Anchors } };
+  summarize: { req: { url: string; title: string; content: string; force: boolean; anchors?: Anchors }; res: { summary: Summary; anchors?: Anchors } | { cancelled: true } };
+  /** abort the running summarize of this page (no cache write, no error) */
+  cancelSummarize: { req: { url: string }; res: {} };
   getShortcut: { req: {}; res: { shortcut: string } };
   listModels: { req: { settings: Pick<Settings, 'baseUrl' | 'apiKey'> }; res: { models: string[] } };
   testConnection: { req: { settings: Settings }; res: { result: TestResult } };
@@ -35,5 +37,6 @@ export async function rpc<K extends MsgType>(type: K, req: Api[K]['req']): Promi
 
 /** Streaming chat over a long-lived port. */
 export const CHAT_PORT = 'chat';
-export interface ChatRequest { url: string; text: string; sid: string; label?: string }
+/** `page` is sent when the page has no summary: its text becomes the chat's attachment */
+export interface ChatRequest { url: string; text: string; sid: string; label?: string; page?: { title: string; content: string } }
 export type ChatEvent = { delta: string } | { done: true; text?: string } | { error: string };

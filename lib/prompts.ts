@@ -6,6 +6,7 @@ export const MAX_CONTENT_CHARS = 60000;
 import { messages, type Lang } from './i18n';
 import { stripMarks } from './highlight';
 import { stripMarkers } from './locate';
+import { attachmentPrompt } from './attachment';
 
 /**
  * Adds the user's own instructions with top priority. They go before the page content and are
@@ -51,7 +52,17 @@ const LINK_KEYS = new Set(['anchor', 'anchors', 'quote', 'quotes']);
 
 export const CHAT_RULES = "Answer concisely, in the user's language, using Markdown when helpful.";
 
-export function chatSystem(title: string, summary: Summary, content: string, custom?: string) {
+/**
+ * With a summary: the summary JSON plus the page text, as before. Without one (cancelled, failed or not generated
+ * yet): the page is an attachment (page.md) the model reads on demand, see lib/attachment.ts.
+ */
+export function chatSystem(title: string, summary: Summary | null | undefined, content: string, custom?: string) {
+  if (!summary) {
+    return withUserPrompt(`You are a helpful assistant answering questions about the web page "${title}".
+${userFirst(custom)}
+${attachmentPrompt(title, content)}
+${CHAT_RULES}`, custom, CHAT_NOTE);
+  }
   return withUserPrompt(`You are a helpful assistant answering questions about the web page "${title}".
 ${userFirst(custom)}
 Summary (JSON): ${JSON.stringify(summary, (k, v) => (LINK_KEYS.has(k) || k === 'keyTerms' ? undefined : typeof v === 'string' ? stripMarks(v) : v))}

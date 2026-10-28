@@ -18,6 +18,8 @@ const zh = {
   resizeHandle: '拖动调整宽度，双击恢复默认',
   summaryFailed: (e: string) => `总结失败：${e}`, retry: '重试',
   summaryExpired: '总结已过期，请点击「重新总结」。',
+  cancelSummary: '取消', summaryCancelled: '已取消自动总结', noOverviewHint: '这页还没有概览。可以现在开始总结，也可以直接和页面对话。', startSummary: '开始总结', chatNow: '直接对话',
+  noSummaryChat: '还没有概览，回答时会按需读取页面原文。',
   // chat
   emptyMain: '关于这个页面，随便问点什么。', emptySide: '这是一个空的支线会话。',
   slashHintPre: '输入 ', slashHintPost: ' 查看命令',
@@ -71,6 +73,8 @@ const en: Messages = {
   resizeHandle: 'Drag to resize, double-click to reset',
   summaryFailed: (e) => `Summary failed: ${e}`, retry: 'Retry',
   summaryExpired: 'The summary has expired. Click “Re-summarize”.',
+  cancelSummary: 'Cancel', summaryCancelled: 'Automatic summary cancelled', noOverviewHint: 'This page has no overview yet. Start the summary now, or chat with the page directly.', startSummary: 'Start summary', chatNow: 'Chat now',
+  noSummaryChat: 'No overview yet; replies read the page text as needed.',
   emptyMain: 'Ask anything about this page.', emptySide: 'This side chat is empty.',
   slashHintPre: 'Type ', slashHintPost: ' for commands',
   current: (name) => `Current: ${name}`,

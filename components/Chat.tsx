@@ -15,7 +15,7 @@ import { messageMarkdown } from '@/lib/copy';
 import { slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, onDraftUsed }: { url: string; pageTitle: string; disabled: boolean; reloadKey: number; onSideCount?: (n: number) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
+export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, onSideCount, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => { title: string; content: string }; onBusy?: (busy: boolean) => void; reloadKey: number; onSideCount?: (n: number) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [input, setInput] = useState('');
@@ -33,6 +33,7 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, 
     requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
   }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { onBusy?.(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const sid = state?.active ?? MAIN_ID;
   const messages: ChatMessage[] = (state && getSession(state, sid)?.messages) || [];
 
@@ -66,7 +67,9 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, 
         setBusy(false); port.disconnect();
       }
     });
-    port.postMessage({ url, text, sid: targetSid, label } satisfies ChatRequest);
+    let page: ChatRequest['page'];
+    if (!hasSummary) { const p = getPage(); page = { title: p.title, content: p.content }; }
+    port.postMessage({ url, text, sid: targetSid, label, ...(page ? { page } : {}) } satisfies ChatRequest);
   };
 
   const fork = async (firstMessage = '') => {
@@ -116,7 +119,7 @@ export function Chat({ url, pageTitle, disabled, reloadKey, onSideCount, draft, 
       <div className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 pt-3 ${skills.length ? 'pb-11' : 'pb-3'}`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
-            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}
+            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}
           </p>
         )}
         {messages.map((m, i) => {
