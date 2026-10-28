@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import { useT } from './i18n';
-import { SlashMenu, type SlashItem } from './SlashMenu';
+import { SlashMenu, slashKeyAction, type SlashItem } from './SlashMenu';
 
 const LINE_PX = 18; // 13px * 1.4 line-height, rounded
 const MAX_LINES = 6;
@@ -44,13 +44,13 @@ export function Composer({ value, onChange, onSubmit, disabled, canSend, status,
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.nativeEvent.isComposing) return;
-              if (showSlash) {
-                if (e.key === 'ArrowDown') { e.preventDefault(); setSlashActive((a) => (a + 1) % slashItems.length); return; }
-                if (e.key === 'ArrowUp') { e.preventDefault(); setSlashActive((a) => (a - 1 + slashItems.length) % slashItems.length); return; }
-                if (e.key === 'Escape') { e.preventDefault(); onChange(''); return; }
-                const it = slashItems[slashActive];
-                const typedSide = /^\/side(\s|$)/i.test(value);
-                if (it && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !(typedSide && it.key === 'side')))) { e.preventDefault(); onPickSlash(it); return; }
+              const act = slashKeyAction(e, slashItems, slashActive, value);
+              if (act) {
+                e.preventDefault();
+                if (act.type === 'move') setSlashActive(act.active);
+                else if (act.type === 'close') onChange('');
+                else onPickSlash(act.item);
+                return;
               }
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
             }}
