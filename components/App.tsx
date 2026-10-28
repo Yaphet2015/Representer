@@ -159,7 +159,7 @@ export function App() {
               <div className="relative min-h-0 flex-1">
                 {tab === 'overview' ? (
                   <div className="rp-scroll h-full overflow-y-auto">
-                    {loading && <><div className="flex items-center justify-between gap-2 px-4 pt-4"><LoadingState label={t.summarizingLabel} /><Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button></div><Skeleton /></>}
+                    {loading && <div className="flex h-full flex-col overflow-hidden"><div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-4"><LoadingState label={t.summarizingLabel} /><Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button></div><div className="min-h-0 flex-1"><Skeleton /></div></div>}
                     {!loading && error && <ErrorView error={error} retry={() => run(true)} onChat={() => setTab('chat')} />}
                     {!loading && !error && !summary && cancelled && <NoOverview onStart={() => run(true)} onChat={() => setTab('chat')} />}
                     {!loading && summary && (
