@@ -11,7 +11,7 @@ export const uiLanguage = (): string => (typeof chrome !== 'undefined' && chrome
 
 const zh = {
   // overlay
-  tabOverview: '概览', tabChat: '对话', overview: '概览',
+  tabOverview: '概览', tabChat: '对话', tabsLabel: '面板视图', overview: '概览',
   cached: '来自缓存', generatedAt: (time: string) => `生成于 ${time}`, copyOverview: '复制概览', copyMessage: '复制消息', copied: '已复制', copyFailed: '复制失败',
   jumpToSource: '在网页中定位', askTerm: (x: string) => `「${x}」是什么？它在这页里是怎么用的？`, askTermTitle: '点击向 AI 提问', excerptTitle: '核心原文', excerptFrom: (title: string, site: string) => (title && site ? `${title} · ${site}` : title || site), resummarize: '重新总结', summarizing: '总结中…', summarizingLabel: '正在总结', updated: '已更新',
   minimize: '最小化', restore: '还原', clickToRestore: '点击还原', close: '关闭',
@@ -66,7 +66,7 @@ const zh = {
 export type Messages = typeof zh;
 
 const en: Messages = {
-  tabOverview: 'Overview', tabChat: 'Chat', overview: 'Overview',
+  tabOverview: 'Overview', tabChat: 'Chat', tabsLabel: 'Panel view', overview: 'Overview',
   cached: 'Cached', generatedAt: (time) => `Generated at ${time}`, copyOverview: 'Copy overview', copyMessage: 'Copy message', copied: 'Copied', copyFailed: 'Copy failed',
   jumpToSource: 'Show in page', askTerm: (x) => `What is “${x}”, and how is it used on this page?`, askTermTitle: 'Click to ask the AI', excerptTitle: 'Key passage', excerptFrom: (title, site) => (title && site ? `${title} · ${site}` : title || site), resummarize: 'Re-summarize', summarizing: 'Summarizing…', summarizingLabel: 'Summarizing', updated: 'Updated',
   minimize: 'Minimize', restore: 'Restore', clickToRestore: 'Click to restore', close: 'Close',

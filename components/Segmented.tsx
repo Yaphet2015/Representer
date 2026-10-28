@@ -1,22 +1,25 @@
-import { motion } from 'framer-motion';
+import { SegmentedControl } from './bui/SegmentedControl';
 import { useT } from './i18n';
 export type Tab = 'overview' | 'chat';
-export function Segmented({ value, onChange, className = 'mx-auto' }: { value: Tab; onChange: (t: Tab) => void; className?: string }) {
+
+/** The panel's primary navigation. `generating` marks the overview as still being written while the chat is shown. */
+export function Segmented({ value, onChange, generating = false, compact = false }: { value: Tab; onChange: (t: Tab) => void; generating?: boolean; compact?: boolean }) {
   const m = useT();
-  const TABS: { id: Tab; label: string }[] = [{ id: 'overview', label: m.tabOverview }, { id: 'chat', label: m.tabChat }];
   return (
-    <div className={`flex w-fit shrink-0 rounded-full bg-zinc-100 p-0.5 ${className}`} onClick={(e) => e.stopPropagation()}>
-      {TABS.map((t) => (
-        <button key={t.id} onClick={() => onChange(t.id)} className="relative rounded-full px-4 py-1 text-[13px] font-medium">
-          {value === t.id && (
-            <motion.span layoutId="rp-pill" className="absolute inset-0 rounded-full bg-white shadow-sm"
-              transition={{ duration: 0.25, ease: 'easeOut' }} />
-          )}
-          <motion.span className="relative" animate={{ color: value === t.id ? '#09090b' : '#71717a' }} transition={{ duration: 0.25, ease: 'easeOut' }}>
-            {t.label}
-          </motion.span>
-        </button>
-      ))}
-    </div>
+    <SegmentedControl<Tab>
+      label={m.tabsLabel} value={value} onChange={onChange} compact={compact}
+      items={[
+        {
+          id: 'overview', label: m.tabOverview,
+          badge: generating && (
+            <>
+              <span data-generating aria-hidden className="ml-1.5 size-1.5 shrink-0 rounded-full bg-accent animate-[pulse_1.4s_cubic-bezier(0.4,0,0.6,1)_infinite] motion-reduce:animate-none" />
+              <span className="sr-only">{m.summarizing}</span>
+            </>
+          ),
+        },
+        { id: 'chat', label: m.tabChat },
+      ]}
+    />
   );
 }
