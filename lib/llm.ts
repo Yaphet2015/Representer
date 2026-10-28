@@ -7,7 +7,8 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createModels, createProvider, type Model } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
-import { createRegistry, Harness, MemoryStorage, UserEntry, AssistantEntry, watchEvents } from '@earendil-works/pi-durable';
+import { createRegistry, Harness, type Extension, MemoryStorage, UserEntry, AssistantEntry, watchEvents } from '@earendil-works/pi-durable';
+import { AbortError } from './abort';
 import type { ChatMessage, Settings } from './types';
 
 const PROVIDER = 'byok';
@@ -34,10 +35,13 @@ const now = () => Date.now();
 /** Run one turn: instructions + prior history + input. Calls onDelta for each streamed text chunk; resolves with the full answer. */
 export async function runTurn(
   s: Settings, instructions: string, history: ChatMessage[], input: string,
-  onDelta?: (t: string) => void, signal?: AbortSignal,
+  onDelta?: (t: string) => void, signal?: AbortSignal, tools?: Extension | null,
 ): Promise<string> {
+  if (signal?.aborted) throw new AbortError();
   const ctx = BACKGROUND_CONTEXT;
-  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s), registry: createRegistry(), settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
+  const registry = createRegistry();
+  if (tools) registry.install(tools);
+  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
   try {
     const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions } } as any);
     if (history.length) {
@@ -67,8 +71,10 @@ export async function runTurn(
     const submission = await root.submit({ type: 'input', content: input }, ctx);
     const onAbort = () => { (root as any).abort?.(ctx).catch?.(() => {}); };
     signal?.addEventListener('abort', onAbort);
-    const settled: any = await submission.wait(ctx);
-    signal?.removeEventListener('abort', onAbort);
+    if (signal?.aborted) onAbort();
+    let settled: any;
+    try { settled = await submission.wait(ctx); } finally { signal?.removeEventListener('abort', onAbort); }
+    if (signal?.aborted) throw new AbortError();
     if (settled.status !== 'done') throw new Error(`Model call failed: ${settled.detail ?? settled.reason ?? settled.status}`);
     const entry: any = await root.commit((tx: any) => tx.entry(AssistantEntry, settled.answer), ctx).catch(() => null);
     const msg = entry?.model?.[0] ?? settled.answer?.model?.[0];

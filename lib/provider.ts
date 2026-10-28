@@ -3,12 +3,14 @@ import { runTurn } from './llm';
 import { mockStream, mockSummary, useMock } from './mock';
 import { summarizeWithSteps } from './steps';
 import { messages, type Lang } from './i18n';
+import { pageTools } from './page-tools';
 import { chatSystem, summaryInstructions, summaryInput } from './prompts';
 import type { ChatMessage, Settings, Summary } from './types';
 
 export interface Provider {
   summarize(title: string, url: string, content: string, signal?: AbortSignal): Promise<Summary>;
-  chat(ctx: { title: string; summary: Summary; content: string }, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string>;
+  /** `summary` is null when there is no overview: the page is then an attachment the model reads on demand */
+  chat(ctx: { title: string; summary: Summary | null; content: string }, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string>;
 }
 
 export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
@@ -25,6 +27,6 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
       return summarizeWithSteps(content, (feedback, attemptSignal) => runTurn(s, summaryInstructions(lang, s.systemPrompt), [],
         feedback ? `${input}\n\n${feedback}` : input, undefined, attemptSignal), signal);
     },
-    chat: (c, history, input, onDelta, signal) => runTurn(s, chatSystem(c.title, c.summary, c.content, s.systemPrompt), history, input, onDelta, signal),
+    chat: (c, history, input, onDelta, signal) => runTurn(s, chatSystem(c.title, c.summary, c.content, s.systemPrompt), history, input, onDelta, signal, c.summary ? null : pageTools(c.content)),
   };
 }
