@@ -150,7 +150,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
         <div ref={end} />
       </div>
       <div className="relative shrink-0">
-        <SkillsRow skills={skills} onRun={(s) => runSkill(s)} disabled={busy || disabled} />
+        <SkillsRow skills={skills} onRun={(s) => runSkill(s)} disabled={busy || disabled} yield={showSlash} />
         <Composer
           value={input} onChange={setInput} onSubmit={submit} disabled={disabled} canSend={canSend}
           slashItems={showSlash ? items : []} onPickSlash={pickSlash} inputRef={inputRef}

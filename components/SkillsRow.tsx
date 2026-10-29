@@ -3,7 +3,7 @@ import { useT } from './i18n';
 import type { Skill } from '@/lib/skills';
 
 /** Single-row, horizontally scrollable Skill pills: hidden scrollbar, wheel → horizontal, fade edges. */
-export function SkillsRow({ skills, onRun, disabled }: { skills: Skill[]; onRun: (s: Skill) => void; disabled: boolean }) {
+export function SkillsRow({ skills, onRun, disabled, yield: yielding = false }: { skills: Skill[]; onRun: (s: Skill) => void; disabled: boolean; /** another overlay (the slash menu) owns the strip above the composer: fade out, leave the tab order, ignore the pointer */ yield?: boolean }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -26,8 +26,8 @@ export function SkillsRow({ skills, onRun, disabled }: { skills: Skill[]; onRun:
   const mask = `linear-gradient(to right, ${edges.left ? 'transparent 0, #000 24px' : '#000 0'}, ${edges.right ? '#000 calc(100% - 24px), transparent 100%' : '#000 100%'})`;
   return (
     <div
-      ref={ref} data-skills-row onScroll={update}
-      className="rp-noscrollbar absolute inset-x-0 bottom-[calc(100%-8px)] z-10 flex gap-1.5 overflow-x-auto px-3 pb-4 pt-2" /* floats over the messages, no background. The scroller clips vertically, so the padding holds the chips' shadow; the extra bottom padding dips 8px into the composer area to keep the chips 8px above the input */
+      ref={ref} data-skills-row data-yielding={yielding || undefined} aria-hidden={yielding || undefined} onScroll={update}
+      className={`rp-noscrollbar absolute inset-x-0 bottom-[calc(100%-8px)] z-10 flex gap-1.5 overflow-x-auto px-3 pb-4 pt-2 transition-[opacity,visibility] duration-150 ${yielding ? 'pointer-events-none invisible opacity-0' : ''}`} /* floats over the messages, no background. The scroller clips vertically, so the padding holds the chips' shadow; the extra bottom padding dips 8px into the composer area to keep the chips 8px above the input */
       style={{ maskImage: mask, WebkitMaskImage: mask }}
     >
       {skills.map((s) => (
