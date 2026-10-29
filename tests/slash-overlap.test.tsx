@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { LangProvider } from '../components/i18n';
@@ -27,6 +28,7 @@ describe('quick actions: one list for the / menu and the + menu', () => {
     expect(html.match(/<svg/g)).toHaveLength(4);
     expect(html.match(/class="flex h-8 /g)).toHaveLength(4); // 32px rows
     expect(html).toContain('rp-menu');
+    expect(readFileSync('assets/tailwind.css', 'utf8')).toContain('.rp-menu { background: rgba(255,255,255,.92); -webkit-backdrop-filter: blur(20px)');
   });
   it('a built-in Skill the user edited gets the template as its description', () => {
     expect(skillDesc({ ...builtin('qa', 'x'), template: '{{input}} 用三句话总结这一页的核心观点' }, t)).toBe('用三句话总结这一页的核心…');
