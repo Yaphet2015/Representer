@@ -5,6 +5,13 @@ import { LangProvider } from '@/components/i18n';
 import { bus } from '@/components/bus';
 import { rpc, TOGGLE } from '@/lib/messages';
 
+/*
+ * Note (verified in Chrome): none of these currently take effect. WXT's shadow root ships
+ * `:host { all: initial !important }`, and for !important declarations a rule in the shadow tree beats the
+ * host's inline style, so the host computes to a 0x0 box (blockified to absolute in the top layer). That is
+ * harmless: the panel itself is position:fixed, the top layer makes z-index moot, and page CSS can't reach
+ * the host either way. Kept as a fallback for browsers without the Popover API.
+ */
 const HOST_STYLE: Record<string, string> = {
   position: 'fixed', inset: '0', width: '100vw', height: '100vh', 'max-width': 'none', 'max-height': 'none',
   margin: '0', padding: '0', border: '0', background: 'transparent', overflow: 'visible',

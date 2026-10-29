@@ -68,3 +68,21 @@ describe('Overview cache indicator', () => {
     expect(h).toContain('data-from-cache'); expect(h).not.toContain('Generated at');
   });
 });
+
+describe('Overview source row', () => {
+  const s: Summary = { overview: 'o', sections: [] };
+  it('starts with favicon + domain, then cached, regenerate, copy; no repeated Overview title', () => {
+    const h = renderToStaticMarkup(<Overview summary={s} fromCache host="example.com" onRegenerate={() => {}} />);
+    expect(h).toContain('data-source-row');
+    expect(h).not.toContain('<h3');
+    const at = (x: string) => h.indexOf(x);
+    expect(at('example.com')).toBeLessThan(at('data-from-cache'));
+    expect(at('data-from-cache')).toBeLessThan(at('data-regenerate'));
+    expect(at('data-regenerate')).toBeLessThan(at('aria-label="Copy overview"'));
+  });
+  it('shows the regenerate confirmation as a check', () => {
+    const h = renderToStaticMarkup(<Overview summary={s} host="a.b" onRegenerate={() => {}} regenerated />);
+    expect(h).toMatch(/data-regenerate[^>]*title="Updated"|title="Updated"[^>]*data-regenerate/);
+  });
+});
+

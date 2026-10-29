@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { chromeKV, KEYS } from '@/lib/storage';
-import { clampWidth, DEFAULT_WIDTH } from '@/lib/width';
+import { clampWidth, DEFAULT_WIDTH, viewportWidth } from '@/lib/width';
 
 type Ev = PointerEvent<HTMLDivElement>;
 
@@ -16,13 +16,13 @@ export function useResizableWidth() {
   const save = (w: number) => chromeKV.set(KEYS.panelWidth, w);
 
   useEffect(() => {
-    chromeKV.get(KEYS.panelWidth).then((w) => { if (typeof w === 'number') setWidth(clampWidth(w, innerWidth)); });
-    const onResize = () => setWidth(clampWidth(widthRef.current, innerWidth));
+    chromeKV.get(KEYS.panelWidth).then((w) => { if (typeof w === 'number') setWidth(clampWidth(w, viewportWidth())); });
+    const onResize = () => setWidth(clampWidth(widthRef.current, viewportWidth()));
     addEventListener('resize', onResize);
     return () => removeEventListener('resize', onResize);
   }, []);
 
-  const reset = () => { setWidth(clampWidth(DEFAULT_WIDTH, innerWidth)); save(DEFAULT_WIDTH); };
+  const reset = () => { setWidth(clampWidth(DEFAULT_WIDTH, viewportWidth())); save(DEFAULT_WIDTH); };
   const onPointerDown = (e: Ev) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -36,7 +36,7 @@ export function useResizableWidth() {
   const onPointerMove = (e: Ev) => {
     if (!drag.current) return;
     if (Math.abs(e.clientX - drag.current.x) > 2) moved.current = true;
-    setWidth(clampWidth(drag.current.w + (drag.current.x - e.clientX), innerWidth)); // right-anchored: drag left = wider
+    setWidth(clampWidth(drag.current.w + (drag.current.x - e.clientX), viewportWidth())); // right-anchored: drag left = wider
   };
   const endDrag = (e: Ev) => {
     if (!drag.current) return;

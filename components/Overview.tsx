@@ -4,7 +4,8 @@ import { cleanQuoteText } from '@/lib/parse';
 import { jumpTo, liveIndex, resolveItem, type Anchors, type Item } from '@/lib/locate';
 import { useT } from './i18n';
 import type { Summary } from '@/lib/types';
-import { Sparkle } from './Icons';
+import { Check, Refresh } from './Icons';
+import { Button } from './bui/Button';
 import { CopyButton } from './CopyButton';
 import { overviewMarkdown } from '@/lib/copy';
 
@@ -108,28 +109,63 @@ function Excerpt({ summary, anchors, enabled, pageTitle }: { summary: Summary; a
   );
 }
 
-export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt }: { fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void }) {
+/** The page's own icon: a declared one, else /favicon.ico; a letter tile if neither loads. */
+export function Favicon({ host }: { host: string }) {
+  const [src, setSrc] = useState<string | null>(() => {
+    if (typeof document === 'undefined') return null;
+    const link = document.querySelector<HTMLLinkElement>('link[rel~="icon"][href]');
+    return link?.href || `${location.origin}/favicon.ico`;
+  });
+  if (!src) return <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-hover-2 text-[10px] font-semibold uppercase text-ink-2">{host.charAt(0) || '·'}</span>;
+  return <img alt="" aria-hidden src={src} onError={() => setSrc(null)} className="size-4 shrink-0 rounded-[4px] object-contain" />;
+}
+
+/**
+ * The overview's first row, sitting under the floating capsule: where the page is from, whether this came from the
+ * cache, and the two actions (re-summarize, copy). There is no "Overview" title: the capsule already says it.
+ */
+export function SourceRow({ host, fromCache, cachedAt, onRegenerate, regenerated, children }: { host: string; fromCache?: boolean; cachedAt?: number; onRegenerate?: () => void; regenerated?: boolean; children?: ReactNode }) {
+  const t = useT();
+  return (
+    <div data-source-row className="flex h-6 items-center gap-1.5">
+      <Favicon host={host} />
+      <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-3">{host}</span>
+      {fromCache && (
+        <span data-from-cache aria-label={t.cached}
+          title={cachedAt && Number.isFinite(cachedAt) ? t.generatedAt(new Date(cachedAt).toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })) : undefined}
+          className="max-w-[80px] shrink-0 truncate whitespace-nowrap text-[11px] font-normal text-ink-3">
+          {t.cached}
+        </span>
+      )}
+      <span className="flex shrink-0 items-center gap-0.5">
+        {onRegenerate && (
+          <Button variant="quiet" size="icon-sm" data-regenerate onClick={onRegenerate}
+            title={regenerated ? t.updated : t.resummarize} aria-label={t.resummarize} className="text-ink-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
+            {regenerated ? <Check className="size-3.5 text-green" /> : <Refresh className="size-3.5" />}
+          </Button>
+        )}
+        {children}
+      </span>
+    </div>
+  );
+}
+
+export const pageHost = () => (typeof location === 'undefined' ? '' : location.hostname.replace(/^www\./, ''));
+
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost() }: { fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string }) {
   const t = useT();
   const ok = useLocatable(summary, anchors);
   return (
-    <div className="space-y-5 px-4 py-4">
+    <div className="space-y-5 px-4 pb-4">
       <section>
-        <h3 className="mb-2 flex flex-nowrap items-center gap-1.5 text-[15px] font-semibold text-zinc-900">
-          <Sparkle className="h-4 w-4 text-accent" /> {t.overview}
-          <span className="ml-auto flex min-w-0 items-center gap-1.5">
-            {fromCache && (
-              <span data-from-cache aria-label={t.cached}
-                title={cachedAt && Number.isFinite(cachedAt) ? t.generatedAt(new Date(cachedAt).toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })) : undefined}
-                className="max-w-[80px] truncate text-[11px] font-normal text-ink-3">
-                {t.cached}
-              </span>
-            )}
+        <div className="mb-1.5">
+          <SourceRow host={host} fromCache={fromCache} cachedAt={cachedAt} onRegenerate={onRegenerate} regenerated={regenerated}>
             <CopyButton
-              className="-my-1 shrink-0" tip="left" label={t.copyOverview}
-              getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', location.hostname.replace(/^www\./, '')) })}
+              className="shrink-0" tip="left" label={t.copyOverview}
+              getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', host) })}
             />
-          </span>
-        </h3>
+          </SourceRow>
+        </div>
         <p className="text-[13.5px] leading-[1.7] text-zinc-700">
           <Marked text={summary.overview} onAsk={onAsk} />
         </p>

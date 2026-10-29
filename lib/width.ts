@@ -9,3 +9,8 @@ export function clampWidth(w: number, viewport: number): number {
   const max = Math.min(MAX_WIDTH, viewport - EDGE_GAP);
   return Math.round(Math.max(Math.min(MIN_WIDTH, Math.max(0, max)), Math.min(w, max)));
 }
+
+/** Layout viewport width without the page's vertical scrollbar (the panel's `right` offset is measured from there too). */
+export function viewportWidth(doc: { documentElement?: { clientWidth: number } | null } = document, win: { innerWidth: number } = window): number {
+  return doc.documentElement?.clientWidth || win.innerWidth;
+}

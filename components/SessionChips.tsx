@@ -8,7 +8,9 @@ export function SessionChips({ state, onSwitch, onClose, onFork, disabled }: {
 }) {
   const t = useT(); const lang = useLang();
   return (
-    <div data-session-chips className="rp-noscrollbar flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-100 px-3 py-1.5">
+    <div data-session-chips className="flex shrink-0 items-center gap-1 border-b border-zinc-100 py-1.5 pl-3 pr-2">
+      {/* only the chips scroll; the fork button stays pinned at the far right */}
+      <div data-chips-scroller className="rp-noscrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {state.sessions.map((s) => {
         const active = s.id === state.active;
         return (
@@ -24,9 +26,10 @@ export function SessionChips({ state, onSwitch, onClose, onFork, disabled }: {
           </span>
         );
       })}
-      <button type="button" onClick={onFork} disabled={disabled} title={t.forkTitle}
-        className="ml-auto inline-flex h-6 shrink-0 items-center gap-1 rounded-chip px-2 text-[12px] text-ink-3 hover:bg-hover hover:text-ink-2 disabled:opacity-40">
-        <Fork className="h-3.5 w-3.5" /> {t.newSide}
+      </div>
+      <button type="button" data-fork onClick={onFork} disabled={disabled} title={t.newSideTitle} aria-label={t.newSideTitle}
+        className="grid size-6 shrink-0 place-items-center rounded-[7px] text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink-2 focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-40">
+        <Fork className="size-3.5" />
       </button>
     </div>
   );
