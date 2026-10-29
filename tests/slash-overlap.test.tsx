@@ -1,42 +1,57 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { LangProvider } from '../components/i18n';
-import { MENU_MAX_PX, menuMaxHeight, SlashMenu, slashItems, slashKeyAction } from '../components/SlashMenu';
-import { SkillsRow } from '../components/SkillsRow';
+import { MENU_MAX_PX, menuMaxHeight, quickItems, skillDesc, SlashMenu, slashItems, slashKeyAction } from '../components/SlashMenu';
+import { Composer, openMenu } from '../components/Composer';
 import { messages } from '../lib/i18n';
-import type { Skill } from '../lib/skills';
+import { DEFAULT_SKILLS, DEFAULT_SKILLS_EN, type Skill } from '../lib/skills';
 
 const skill = (n: number): Skill => ({ id: `s${n}`, name: `技能${n}`, template: 'summarize {{page_title}} for me please, in detail', icon: '💡' } as Skill);
 const skills = Array.from({ length: 12 }, (_, i) => skill(i));
 const t = messages('zh-CN');
 const wrap = (el: React.ReactElement) => renderToStaticMarkup(<LangProvider>{el}</LangProvider>);
-const row = (yieldTo: boolean) => wrap(<SkillsRow skills={skills.slice(0, 4)} onRun={() => {}} disabled={false} yield={yieldTo} />);
 
-describe('quick-ask strip yields to the slash menu', () => {
-  it('is visible and clickable while the menu is closed', () => {
-    const html = row(false);
-    expect(html).toContain('data-skills-row');
-    expect(html).not.toContain('invisible');
-    expect(html).not.toContain('pointer-events-none');
-    expect(html).not.toContain('aria-hidden="true" class="rp-noscrollbar');
-  });
-  it('is hidden from sight, pointer, tab order and screen readers while the menu is open, and still mounted (so it comes back)', () => {
-    const html = row(true);
-    expect(html).toContain('data-skills-row');
-    expect(html).toMatch(/invisible/);
-    expect(html).toMatch(/pointer-events-none/);
-    expect(html).toMatch(/opacity-0/);
-    expect(html).toContain('aria-hidden="true"');
-  });
-  it('the menu opens exactly while the input starts with "/", so the strip returns when it closes', () => {
+describe('quick actions: one list for the / menu and the + menu', () => {
+  const builtin = (id: string, name: string): Skill => ({ ...[...DEFAULT_SKILLS, ...DEFAULT_SKILLS_EN].find((d) => d.id === id)!, name });
+  it('the / menu opens exactly while the input starts with "/" and something matches', () => {
     for (const [input, open] of [['/', true], ['/技能1', true], ['/side hi', true], ['/zzz-none', false], ['hello', false], ['', false]] as const)
       expect(slashItems(input, skills, t).length > 0, input).toBe(open);
   });
-  it('the menu is always painted above the strip', () => {
-    const menu = wrap(<SlashMenu items={slashItems('/', skills.slice(0, 3), t)} active={0} onPick={() => {}} onHover={() => {}} />);
-    expect(menu).toContain('data-slash-menu');
-    expect(menu).toMatch(/z-20/);
-    expect(row(false)).toMatch(/z-10/);
+  it('lists every Skill, then /side, with a line icon, a name and a short grey description', () => {
+    const items = quickItems([builtin('translate-en', '翻译成英文'), builtin('key-points', '提炼要点'), skill(1)], t);
+    expect(items.map((i) => i.key)).toEqual(['translate-en', 'key-points', 's1', 'side']);
+    expect(items.map((i) => i.desc)).toEqual(['保留术语', '一句一条', 'summarize fo…', t.sideDesc]);
+    expect(items[3]!.name).toBe(t.sideName);
+    const html = wrap(<SlashMenu items={items} active={1} onPick={() => {}} onHover={() => {}} />);
+    expect(html).not.toContain('🌐'); // line icons, not emoji
+    expect(html.match(/<svg/g)).toHaveLength(4);
+    expect(html.match(/class="flex h-8 /g)).toHaveLength(4); // 32px rows
+    expect(html).toContain('rp-menu');
+    expect(readFileSync('assets/tailwind.css', 'utf8')).toContain('.rp-menu { background: rgba(255,255,255,.92); -webkit-backdrop-filter: blur(20px)');
+  });
+  it('a built-in Skill the user edited gets the template as its description', () => {
+    expect(skillDesc({ ...builtin('qa', 'x'), template: '{{input}} 用三句话总结这一页的核心观点' }, t)).toBe('用三句话总结这一页的核心…');
+    expect(skillDesc(builtin('qa', 'Quiz me'), messages('en'))).toBe('Check yourself');
+    expect(skillDesc({ id: 'qa', name: 'x', template: '短 {{input}}' }, t)).toBe('短');
+  });
+  it('typed "/" wins over the + menu; the + menu shows the full list', () => {
+    const all = quickItems(skills.slice(0, 2), t);
+    expect(openMenu([all[0]!], all, true)).toEqual({ mode: 'slash', items: [all[0]] });
+    expect(openMenu([], all, true)).toEqual({ mode: 'plus', items: all });
+    expect(openMenu([], all, false)).toEqual({ mode: null, items: [] });
+    expect(openMenu([], [], true).mode).toBeNull();
+  });
+  it('the + button is borderless, and turns into a light-blue × while open', () => {
+    const ref = { current: null };
+    const html = wrap(<Composer value="" onChange={() => {}} onSubmit={() => {}} disabled={false} canSend={false} status="" slashItems={[]} onPickSlash={() => {}} quickItems={quickItems(skills.slice(0, 2), t)} onPickQuick={() => {}} inputRef={ref} />);
+    const plus = html.match(/<button[^>]*data-plus[^>]*>/)![0];
+    expect(plus).not.toMatch(/\bborder\b/);
+    expect(plus).toContain('aria-expanded="false"');
+    expect(html).toContain('rp-composer');
+    const send = html.match(/<button[^>]*data-send[^>]*>/)![0];
+    expect(send).toContain('disabled');
+    expect(send).toContain('var(--line-strong)'); // empty input: grey, disabled
   });
 });
 
@@ -54,7 +69,7 @@ describe('menu height follows the room above the composer', () => {
 });
 
 describe('keyboard still drives the menu', () => {
-  const items = slashItems('/', skills.slice(0, 3), t); // /side + 3 skills
+  const items = slashItems('/', skills.slice(0, 3), t); // 3 skills + /side
   const key = (k: string, shiftKey = false) => ({ key: k, shiftKey });
   it('moves with the arrows, wrapping both ways', () => {
     expect(slashKeyAction(key('ArrowDown'), items, 0, '/')).toEqual({ type: 'move', active: 1 });

@@ -60,12 +60,18 @@ const zh = {
   saveChanges: '保存修改', add: '添加', cancel: '取消', noSkills: '还没有 Skill。', builtin: '内置',
   confirmDelete: '确定删除？', delete: '删除', moveUp: '上移', moveDown: '下移', edit: '编辑', resetSkills: '恢复内置默认 Skills',
   errName: '请填写名称', errNameLong: '名称最多 24 个字', errTemplate: '请填写提示词模板', errNoSkill: 'Skill 不存在',
+  quickActions: '快捷操作', quickHintPre: '点 ', quickHintMid: ' 或输入 ', quickHintPost: ' 使用快捷操作。',
+  sideName: '开个支线', sideDesc: '不打断主线',
+  quickDesc: { 'translate-en': '保留术语', 'key-points': '一句一条', explain: '讲清难词', qa: '检验理解' } as Record<string, string>,
   // prompt
   replyLanguage: 'Simplified Chinese',
 };
 export type Messages = typeof zh;
 
 const en: Messages = {
+  quickActions: 'Quick actions', quickHintPre: 'Tap ', quickHintMid: ' or type ', quickHintPost: ' for quick actions.',
+  sideName: 'Side chat', sideDesc: 'Keeps this one going',
+  quickDesc: { 'translate-en': 'Keeps terms', 'key-points': 'One per line', explain: 'Plain words', qa: 'Check yourself' },
   tabOverview: 'Overview', tabChat: 'Chat', tabsLabel: 'Panel view', overview: 'Overview',
   cached: 'Cached', generatedAt: (time) => `Generated at ${time}`, copyOverview: 'Copy overview', copyMessage: 'Copy message', copied: 'Copied', copyFailed: 'Copy failed',
   jumpToSource: 'Show in page', askTerm: (x) => `What is “${x}”, and how is it used on this page?`, askTermTitle: 'Click to ask the AI', excerptTitle: 'Key passage', excerptFrom: (title, site) => (title && site ? `${title} · ${site}` : title || site), resummarize: 'Re-summarize', summarizing: 'Summarizing…', summarizingLabel: 'Summarizing', updated: 'Updated',

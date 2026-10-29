@@ -1,21 +1,41 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { Skill } from '@/lib/skills';
-import { useT } from './i18n';
+import { DEFAULT_SKILLS, DEFAULT_SKILLS_EN, type Skill } from '@/lib/skills';
 import type { Messages } from '@/lib/i18n';
-import { Fork } from './Icons';
+import { BulletIcons, Fork, QuizIcon, Sparkle, Translate } from './Icons';
 
-export type SlashItem = { key: string; cmd: string; desc: string; icon?: React.ReactNode; skill?: Skill };
+/** One quick action: the `/side` command or a Skill. The same list feeds the `/` menu and the + menu. */
+export type SlashItem = { key: string; cmd: string; name: string; desc: string; icon: React.ReactNode; skill?: Skill };
 
-export function slashItems(input: string, skills: Skill[], t: Pick<Messages, 'slashSide'>): SlashItem[] {
+const LINE: Record<string, (p: { className?: string }) => React.JSX.Element> = {
+  'translate-en': Translate, 'key-points': BulletIcons.list, explain: BulletIcons.lightbulb, qa: QuizIcon,
+};
+const ICON_CLS = 'size-3.5 shrink-0 text-ink-2';
+
+/** Short grey description: a fixed one for unedited built-in Skills, else the start of the prompt template. */
+export function skillDesc(s: Skill, t: Pick<Messages, 'quickDesc'>): string {
+  const pristine = [...DEFAULT_SKILLS, ...DEFAULT_SKILLS_EN].some((d) => d.id === s.id && d.template === s.template);
+  if (pristine && t.quickDesc[s.id]) return t.quickDesc[s.id]!;
+  const plain = s.template.replace(/\{\{[^}]*\}\}/g, '').replace(/\s+/g, ' ').trim();
+  return plain.length > 12 ? plain.slice(0, 12) + '…' : plain;
+}
+
+/** Every quick action, in menu order: Skills (most recent first, as given), then /side. */
+export function quickItems(skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc'>): SlashItem[] {
+  return [
+    ...skills.map((s) => { const I = LINE[s.id] ?? Sparkle; return { key: s.id, cmd: '/' + s.name, name: s.name, desc: skillDesc(s, t), icon: <I className={ICON_CLS} />, skill: s }; }),
+    { key: 'side', cmd: '/side', name: t.sideName, desc: t.sideDesc, icon: <Fork className={ICON_CLS} /> },
+  ];
+}
+
+/** Items for what is typed: the menu is open exactly while the input starts with "/" and something matches. */
+export function slashItems(input: string, skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc'>): SlashItem[] {
   if (!input.startsWith('/')) return [];
   const q = input.slice(1).split(/\s/)[0]!.toLowerCase();
   if (/\s/.test(input) && !/^\/side\b/i.test(input)) return [];
-  const all: SlashItem[] = [
-    { key: 'side', cmd: '/side', desc: t.slashSide, icon: <Fork className="mx-auto h-3.5 w-3.5 text-ink-2" /> },
-    ...skills.map((s) => ({ key: s.id, cmd: '/' + s.name, desc: 'Skill · ' + s.template.replace(/\s+/g, ' ').slice(0, 28) + '…', icon: s.icon, skill: s })),
-  ];
-  if (/^\/side\s/i.test(input)) return all.slice(0, 1);
-  return all.filter((i) => i.cmd.slice(1).toLowerCase().includes(q));
+  const all = quickItems(skills, t);
+  const side = all.filter((i) => i.key === 'side');
+  if (/^\/side\s/i.test(input)) return side;
+  return all.filter((i) => i.cmd.slice(1).toLowerCase().includes(q) || i.name.toLowerCase().includes(q));
 }
 
 export type SlashKeyAction = { type: 'move'; active: number } | { type: 'pick'; item: SlashItem } | { type: 'close' };
@@ -59,23 +79,22 @@ function useFitAbove(ref: React.RefObject<HTMLDivElement | null>, open: boolean)
   }, [ref, open]);
 }
 
-export function SlashMenu({ items, active, onPick, onHover }: { items: SlashItem[]; active: number; onPick: (i: SlashItem) => void; onHover: (i: number) => void }) {
-  const t = useT();
+/** Quick-actions menu (H5b): above the composer, same width, one 32px row per item — line icon, name, grey description. */
+export function SlashMenu({ items, active, onPick, onHover, id }: { items: SlashItem[]; active: number; onPick: (i: SlashItem) => void; onHover: (i: number) => void; id?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useFitAbove(ref, items.length > 0);
   // keyboard navigation must never select an item that is scrolled out of sight
   useEffect(() => { ref.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [active, items]);
   if (!items.length) return null;
   return (
-    <div ref={ref} role="listbox" data-slash-menu className="absolute bottom-full left-3 right-3 z-20 mb-1.5 overflow-y-auto overscroll-contain rounded-card bg-surface p-1 shadow-card" style={{ maxHeight: MENU_MAX_PX, animation: 'pop-in 150ms cubic-bezier(0.23,1,0.32,1) both', transformOrigin: 'bottom left' }}>
-      <div className="px-2 pb-1 pt-0.5 text-[11px] text-ink-3">{t.slashHeader}</div>
+    <div ref={ref} id={id} role="listbox" data-slash-menu className="rp-menu absolute bottom-full left-3 right-3 z-20 mb-1.5 overflow-y-auto overscroll-contain p-1" style={{ maxHeight: MENU_MAX_PX, animation: 'pop-in 150ms cubic-bezier(0.23,1,0.32,1) both', transformOrigin: 'bottom left' }}>
       {items.map((it, i) => (
-        <div key={it.key} role="option" aria-selected={i === active}
+        <div key={it.key} role="option" aria-selected={i === active} data-item={it.key}
           onMouseDown={(e) => { e.preventDefault(); onPick(it); }} onMouseEnter={() => onHover(i)}
-          className={`flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 ${i === active ? 'bg-accent-tint' : ''}`}>
-          <span className="w-4 text-center text-[13px]" aria-hidden>{it.icon ?? '⚡'}</span>
-          <span className={`text-[13px] font-medium ${i === active ? 'text-accent-ink' : 'text-ink'}`}>{it.cmd}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">{it.desc}</span>
+          className={`flex h-8 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-[13px] text-ink ${i === active ? 'bg-hover-2' : ''}`}>
+          <span aria-hidden className="grid size-3.5 place-items-center">{it.icon}</span>
+          <span className="truncate">{it.name}</span>
+          <span className="ml-auto shrink-0 whitespace-nowrap pl-2 text-[12px] text-ink-3">{it.desc}</span>
         </div>
       ))}
     </div>
