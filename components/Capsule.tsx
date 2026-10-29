@@ -7,7 +7,7 @@ import { useT } from './i18n';
 import { ChatBubble, Close, Sparkle } from './Icons';
 import { LoaderGrid } from './bui/LoadingState';
 
-export function Capsule({ value, onChange, collapsed = false, summarizing = false }: { value: Tab; onChange: (t: Tab) => void; collapsed?: boolean; /** the overview is being written: flowing border + pixel icon */ summarizing?: boolean }) {
+export function Capsule({ value, onChange, collapsed = false, summarizing = false, frost = false }: { value: Tab; onChange: (t: Tab) => void; collapsed?: boolean; /** content is scrolling underneath: a small frosted patch behind the capsule only */ frost?: boolean; /** the overview is being written: flowing border + pixel icon */ summarizing?: boolean }) {
   const t = useT();
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -21,6 +21,7 @@ export function Capsule({ value, onChange, collapsed = false, summarizing = fals
   return (
     <div role="tablist" aria-label={t.tabsLabel} onKeyDown={onKeyDown} data-capsule data-collapsed={collapsed || undefined} data-summarizing={summarizing || undefined}
       className="relative flex h-8 gap-0.5 rounded-[11px] bg-surface p-0.5 shadow-float">
+      <FrostPatch on={frost} />
       {summarizing && <span aria-hidden data-flow className="rp-flow"><i /></span>}
       {TABS.map((id) => {
         const selected = id === value;
@@ -50,12 +51,23 @@ export function Capsule({ value, onChange, collapsed = false, summarizing = fals
 }
 
 /** The round close button floating at the top right; Esc inside the panel does the same. Not part of the tab list. */
-export function CloseButton({ onClose }: { onClose: () => void }) {
+export function CloseButton({ onClose, frost = false }: { onClose: () => void; frost?: boolean }) {
   const t = useT();
   return (
+    <span className="relative block">
+    <FrostPatch on={frost} />
     <button type="button" data-close onClick={onClose} aria-label={t.close} title={t.closeEsc}
       className="grid size-8 place-items-center rounded-[11px] bg-surface text-ink-2 shadow-float transition-colors duration-150 hover:bg-hover hover:text-ink active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
       <Close className="size-4" />
     </button>
+    </span>
   );
+}
+
+/**
+ * Local frosted glass behind one floating control (not a full-width strip): 6px outside the control, same corner
+ * shape, edges feathered by a mask so it melts into the content scrolling underneath.
+ */
+export function FrostPatch({ on }: { on: boolean }) {
+  return <span aria-hidden data-frost={on || undefined} className={cn('rp-frost-patch pointer-events-none absolute -inset-1.5 -z-10 rounded-[17px] transition-opacity duration-200 motion-reduce:transition-none', on ? 'opacity-100' : 'opacity-0')} />;
 }

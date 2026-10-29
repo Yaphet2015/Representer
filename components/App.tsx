@@ -121,10 +121,10 @@ export function App() {
         >
           {/* glow under the floating controls: accent on the overview, neutral in chat; fades once reading starts */}
           <div aria-hidden data-halo={isOverview ? 'accent' : 'neutral'}
-            className={`pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] transition-opacity duration-200 motion-reduce:transition-none ${(isOverview ? glass : collapsed) ? 'opacity-0' : 'opacity-100'}`}
+            className={`pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] transition-opacity duration-200 motion-reduce:transition-none ${glass ? 'opacity-0' : 'opacity-100'}`}
             style={{ background: isOverview
               ? 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, #fff) 0%, color-mix(in srgb, var(--accent) 5%, #fff) 48%, #fff 100%)'
-              : 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--ink) 6%, #fff) 0%, #fff 100%)' }} />
+              : 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--ink) 9%, #fff) 0%, color-mix(in srgb, var(--ink) 3.5%, #fff) 48%, #fff 100%)' }} />
           {/* left-edge resize handle */}
           <div
             role="separator" aria-orientation="vertical" aria-label={t.resizeHandle} title={t.resizeHandle}
@@ -158,17 +158,15 @@ export function App() {
                 )}
               </div>
             ) : (
-              <div className="flex h-full flex-col pt-10">
+              <div className="flex h-full flex-col">
                 <Chat url={url} pageTitle={title} reloadKey={chatKey} hasSummary={!!summary} getPage={getPage} onBusy={(b) => { chatBusy.current = b; }} scrollRef={scrollRef} draft={draft} onDraftUsed={() => setDraft(null)} />
               </div>
             )}
           </div>
-          {/* frosted strip once overview content scrolls under the capsule */}
-          {isOverview && <div aria-hidden data-frost className={`rp-frost pointer-events-none absolute inset-x-0 top-0 z-[5] h-[54px] transition-opacity duration-200 motion-reduce:transition-none ${glass ? 'opacity-100' : 'opacity-0'}`} />}
           <div className="absolute left-1/2 top-1.5 z-[7] -translate-x-1/2" onPointerEnter={expand} onFocus={expand}>
-            <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} />
+            <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} frost={glass} />
           </div>
-          <div className="absolute right-2 top-1.5 z-[7]"><CloseButton onClose={() => setOpen(false)} /></div>
+          <div className="absolute right-2 top-1.5 z-[7]"><CloseButton onClose={() => setOpen(false)} frost={glass} /></div>
         </motion.div>
       )}
     </AnimatePresence>

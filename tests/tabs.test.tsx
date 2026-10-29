@@ -47,6 +47,21 @@ describe('floating capsule', () => {
     expect(html).toContain('title="Close · Esc"');
   });
 
+  it('frosts only a patch behind each floating control once content scrolls under', () => {
+    expect(cap({ frost: true })).toMatch(/data-frost="true"[^>]*|rp-frost-patch[^>]*data-frost/);
+    expect(cap({ frost: true })).toContain('-inset-1.5');
+    expect(cap()).not.toContain('data-frost="true"');
+    expect(render(<CloseButton onClose={() => {}} frost />)).toContain('data-frost="true"');
+    const app = readFileSync('components/App.tsx', 'utf8');
+    expect(app).not.toMatch(/inset-x-0 top-0 z-\[5\]/); // no full-width strip
+  });
+
+  it('has a glow on both pages: accent on the overview, neutral grey in chat', () => {
+    const app = readFileSync('components/App.tsx', 'utf8');
+    expect(app).toContain("data-halo={isOverview ? 'accent' : 'neutral'}");
+    expect(app).not.toMatch(/isOverview && <div aria-hidden data-halo/);
+  });
+
   it('arrow keys wrap, Home/End jump, other keys do nothing', () => {
     expect(nextTab('overview', 'ArrowRight')).toBe('chat');
     expect(nextTab('overview', 'ArrowLeft')).toBe('chat');
