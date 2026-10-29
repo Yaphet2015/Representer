@@ -54,14 +54,14 @@ button::-moz-focus-inner { border: 0; }
 
 /* Floating capsule while the overview is being written: a 1.5px ring with a light running around it.
    The ring is masked out of an oversized rotating conic square (an @property angle would not register inside a shadow root). */
-.rp-flow { position: absolute; inset: -1px; border-radius: 12px; padding: 1.5px; overflow: hidden; pointer-events: none;
+.rp-flow { position: absolute; inset: -1px; border-radius: 999px; padding: 1.5px; overflow: hidden; pointer-events: none;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
 .rp-flow > i { position: absolute; left: 50%; top: 50%; width: 260px; height: 260px; margin: -130px 0 0 -130px;
   background: conic-gradient(from 200deg, transparent 0 40%, var(--accent) 78%, transparent 100%); animation: rp-spin 1.6s linear infinite; }
 @keyframes rp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rp-flow { opacity: .6; } .rp-flow > i { animation: none; } }
-/* frosted strip under the capsule once content scrolls beneath it */
-.rp-frost { background: rgba(255,255,255,.9); -webkit-mask-image: linear-gradient(#000 62%, transparent); mask-image: linear-gradient(#000 62%, transparent); }
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .rp-frost { background: rgba(255,255,255,.75); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); }
-}
+/* no scroll chaining from any scroll container in the panel to the host page (see lib/scroll-guard.ts for the rest) */
+.rp-scroll, textarea, [class*="overflow-y-auto"], [class*="overflow-x-auto"], [class*="overflow-auto"] { overscroll-behavior: contain; }
+/* F2 floating material: capsule (both states) and close button */
+.rp-glass { background: rgba(255,255,255,.25); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid rgba(0,0,0,.12); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 12px -2px rgba(0,0,0,.12); }

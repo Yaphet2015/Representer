@@ -20,7 +20,7 @@ export function Capsule({ value, onChange, collapsed = false, summarizing = fals
   const label = { overview: t.tabOverview, chat: t.tabChat };
   return (
     <div role="tablist" aria-label={t.tabsLabel} onKeyDown={onKeyDown} data-capsule data-collapsed={collapsed || undefined} data-summarizing={summarizing || undefined}
-      className="relative flex h-8 gap-0.5 rounded-[11px] bg-surface p-0.5 shadow-float">
+      className="rp-glass relative flex h-8 items-center gap-0.5 rounded-full px-[3px]">
       {summarizing && <span aria-hidden data-flow className="rp-flow"><i /></span>}
       {TABS.map((id) => {
         const selected = id === value;
@@ -29,12 +29,12 @@ export function Capsule({ value, onChange, collapsed = false, summarizing = fals
             aria-selected={selected} tabIndex={selected ? 0 : -1} onClick={() => onChange(id)}
             title={collapsed ? label[id] : undefined} aria-label={collapsed ? label[id] : undefined}
             className={cn(
-              'relative inline-flex h-7 select-none items-center justify-center gap-[5px] overflow-hidden whitespace-nowrap rounded-[9px] text-[14px] font-semibold leading-none',
+              'relative inline-flex h-6 select-none items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full text-[13px] font-semibold leading-none',
               'transition-[width,padding,background-color,color,transform] duration-200 ease-out-strong active:scale-[.97] motion-reduce:transition-none',
               // a ring, not an outline: the panel stylesheet strips outlines (assets/tailwind.css)
               'focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1',
-              collapsed ? 'w-7 px-0' : 'px-2.5',
-              selected ? 'bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-accent-ink' : 'text-ink-2 hover:bg-hover-2 hover:text-ink',
+              collapsed ? 'w-[26px] px-0' : 'px-2.5',
+              selected ? 'bg-[color-mix(in_srgb,var(--accent)_16%,rgba(255,255,255,.55))] text-accent-ink' : 'text-ink-2 hover:bg-white/50 hover:text-ink',
             )}>
             {id === 'overview'
               ? (summarizing ? <LoaderGrid tone="bg-accent" /> : <Sparkle className="size-3.5 shrink-0" />)
@@ -54,8 +54,9 @@ export function CloseButton({ onClose }: { onClose: () => void }) {
   const t = useT();
   return (
     <button type="button" data-close onClick={onClose} aria-label={t.close} title={t.closeEsc}
-      className="grid size-8 place-items-center rounded-[11px] bg-surface text-ink-2 shadow-float transition-colors duration-150 hover:bg-hover hover:text-ink active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
+      className="rp-glass grid size-8 place-items-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:bg-white/60 hover:text-ink active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
       <Close className="size-4" />
     </button>
   );
 }
+

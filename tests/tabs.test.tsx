@@ -22,13 +22,13 @@ describe('floating capsule', () => {
     expect(tab(html, 'chat')).toContain('tabindex="0"');
     expect(tab(html, 'overview')).toContain('aria-selected="false"');
     expect(tab(html, 'overview')).toContain('tabindex="-1"');
-    expect(tab(html, 'overview')).toContain('hover:bg-hover-2');
+    expect(tab(html, 'overview')).toContain('hover:bg-white/50');
   });
 
   it('collapses to icons: labels leave the layout and the name moves to title / aria-label', () => {
     const html = cap({ collapsed: true });
     expect(html).toContain('data-collapsed="true"');
-    expect(tab(html, 'overview')).toContain('w-7 px-0');
+    expect(tab(html, 'overview')).toContain('w-[26px] px-0');
     expect(tab(html, 'overview')).toContain(`title="${messages('en').tabOverview}"`);
     expect(html).toMatch(/data-label[^>]*hidden/);
     expect(cap()).not.toContain('data-collapsed');
@@ -45,6 +45,23 @@ describe('floating capsule', () => {
     const html = render(<CloseButton onClose={() => {}} />);
     expect(html).toContain(`aria-label="${messages('en').close}"`);
     expect(html).toContain('title="Close · Esc"');
+  });
+
+  it('capsule and close share the F2 glass material; no frost patches', () => {
+    expect(cap()).toContain('rp-glass');
+    expect(cap({ collapsed: true })).toContain('rp-glass');
+    expect(render(<CloseButton onClose={() => {}} />)).toContain('rp-glass');
+    expect(cap()).not.toContain('data-frost');
+    expect(tab(cap(), 'overview')).toContain('var(--accent)_16%');
+    const css = readFileSync('assets/tailwind.css', 'utf8');
+    expect(css).toMatch(/\.rp-glass \{ background: rgba\(255,255,255,\.25\); -webkit-backdrop-filter: blur\(6px\)/);
+    expect(css).not.toContain('rp-frost');
+  });
+
+  it('uses the same blue glow on both pages', () => {
+    const app = readFileSync('components/App.tsx', 'utf8');
+    expect(app).not.toContain('var(--ink) 9%');
+    expect(app.match(/var\(--accent\) 13%/g)).toHaveLength(1);
   });
 
   it('arrow keys wrap, Home/End jump, other keys do nothing', () => {
