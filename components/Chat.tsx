@@ -112,7 +112,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
     <div className="flex h-full flex-col">
       {state && state.sessions.length > 1 && <div className="mt-10 shrink-0"><SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} /></div>}
       {/* without side chats the messages start under the floating capsule and scroll beneath it */}
-      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${sideCount > 0 ? 'pt-3' : 'pt-12'} ${skills.length ? 'pb-11' : 'pb-3'}`}>
+      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${sideCount > 0 ? 'pt-3' : 'pt-14'} ${skills.length ? 'pb-11' : 'pb-3'}`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
             {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}{sideCount === 0

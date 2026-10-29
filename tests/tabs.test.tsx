@@ -22,13 +22,13 @@ describe('floating capsule', () => {
     expect(tab(html, 'chat')).toContain('tabindex="0"');
     expect(tab(html, 'overview')).toContain('aria-selected="false"');
     expect(tab(html, 'overview')).toContain('tabindex="-1"');
-    expect(tab(html, 'overview')).toContain('hover:bg-hover-2');
+    expect(tab(html, 'overview')).toContain('hover:bg-white/50');
   });
 
   it('collapses to icons: labels leave the layout and the name moves to title / aria-label', () => {
     const html = cap({ collapsed: true });
     expect(html).toContain('data-collapsed="true"');
-    expect(tab(html, 'overview')).toContain('w-7 px-0');
+    expect(tab(html, 'overview')).toContain('w-[26px] px-0');
     expect(tab(html, 'overview')).toContain(`title="${messages('en').tabOverview}"`);
     expect(html).toMatch(/data-label[^>]*hidden/);
     expect(cap()).not.toContain('data-collapsed');
@@ -47,19 +47,21 @@ describe('floating capsule', () => {
     expect(html).toContain('title="Close · Esc"');
   });
 
-  it('frosts only a patch behind each floating control once content scrolls under', () => {
-    expect(cap({ frost: true })).toMatch(/data-frost="true"[^>]*|rp-frost-patch[^>]*data-frost/);
-    expect(cap({ frost: true })).toContain('-inset-1.5');
-    expect(cap()).not.toContain('data-frost="true"');
-    expect(render(<CloseButton onClose={() => {}} frost />)).toContain('data-frost="true"');
-    const app = readFileSync('components/App.tsx', 'utf8');
-    expect(app).not.toMatch(/inset-x-0 top-0 z-\[5\]/); // no full-width strip
+  it('capsule and close share the F2 glass material; no frost patches', () => {
+    expect(cap()).toContain('rp-glass');
+    expect(cap({ collapsed: true })).toContain('rp-glass');
+    expect(render(<CloseButton onClose={() => {}} />)).toContain('rp-glass');
+    expect(cap()).not.toContain('data-frost');
+    expect(tab(cap(), 'overview')).toContain('var(--accent)_16%');
+    const css = readFileSync('assets/tailwind.css', 'utf8');
+    expect(css).toMatch(/\.rp-glass \{ background: rgba\(255,255,255,\.25\); -webkit-backdrop-filter: blur\(6px\)/);
+    expect(css).not.toContain('rp-frost');
   });
 
-  it('has a glow on both pages: accent on the overview, neutral grey in chat', () => {
+  it('uses the same blue glow on both pages', () => {
     const app = readFileSync('components/App.tsx', 'utf8');
-    expect(app).toContain("data-halo={isOverview ? 'accent' : 'neutral'}");
-    expect(app).not.toMatch(/isOverview && <div aria-hidden data-halo/);
+    expect(app).not.toContain('var(--ink) 9%');
+    expect(app.match(/var\(--accent\) 13%/g)).toHaveLength(1);
   });
 
   it('arrow keys wrap, Home/End jump, other keys do nothing', () => {

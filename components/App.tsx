@@ -13,6 +13,7 @@ import { Capsule, CloseButton } from './Capsule';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
+import { guardScroll } from '@/lib/scroll-guard';
 import { useResizableWidth } from './useResizableWidth';
 import { useCapsuleCollapse } from './useCapsuleCollapse';
 import { Button } from './bui/Button';
@@ -48,7 +49,10 @@ export function App() {
   const { width, resizing, handleProps } = useResizableWidth();
   const lang = useLang();
   // Tell translators (and screen readers) the panel's language, separate from the host page's.
+  const unguard = useRef<() => void>(() => {});
   const rootRef = useCallback((el: HTMLElement | null) => {
+    // wheel / touch inside the panel never scrolls the host page
+    unguard.current(); unguard.current = el ? guardScroll(el) : () => {};
     const host = (el?.getRootNode() as ShadowRoot | undefined)?.host as HTMLElement | undefined;
     if (host) host.setAttribute('lang', lang);
     el?.setAttribute('lang', lang);
@@ -119,12 +123,10 @@ export function App() {
           className="notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden bg-white font-sans text-zinc-900 antialiased"
           style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, boxShadow: '0 8px 24px rgba(0,0,0,.1)', height: 'calc(100vh - 40px)', border: '1px solid rgba(0,0,0,.06)' }}
         >
-          {/* glow under the floating controls: accent on the overview, neutral in chat; fades once reading starts */}
-          <div aria-hidden data-halo={isOverview ? 'accent' : 'neutral'}
+          {/* blue glow under the floating controls, on both pages; fades once content scrolls under them */}
+          <div aria-hidden data-halo
             className={`pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] transition-opacity duration-200 motion-reduce:transition-none ${glass ? 'opacity-0' : 'opacity-100'}`}
-            style={{ background: isOverview
-              ? 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, #fff) 0%, color-mix(in srgb, var(--accent) 5%, #fff) 48%, #fff 100%)'
-              : 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--ink) 9%, #fff) 0%, color-mix(in srgb, var(--ink) 3.5%, #fff) 48%, #fff 100%)' }} />
+            style={{ background: 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, #fff) 0%, color-mix(in srgb, var(--accent) 5%, #fff) 48%, #fff 100%)' }} />
           {/* left-edge resize handle */}
           <div
             role="separator" aria-orientation="vertical" aria-label={t.resizeHandle} title={t.resizeHandle}
@@ -164,9 +166,9 @@ export function App() {
             )}
           </div>
           <div className="absolute left-1/2 top-1.5 z-[7] -translate-x-1/2" onPointerEnter={expand} onFocus={expand}>
-            <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} frost={glass} />
+            <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} />
           </div>
-          <div className="absolute right-2 top-1.5 z-[7]"><CloseButton onClose={() => setOpen(false)} frost={glass} /></div>
+          <div className="absolute right-2 top-1.5 z-[7]"><CloseButton onClose={() => setOpen(false)} /></div>
         </motion.div>
       )}
     </AnimatePresence>
