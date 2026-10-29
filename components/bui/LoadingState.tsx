@@ -14,11 +14,11 @@ const PATTERNS: Record<string, { delays: (number | null)[]; dur: number; round: 
   Orbit: { delays: orbit, dur: 950, round: false },
 };
 
-function LoaderGrid({ delays, dur, round }: { delays: (number | null)[]; dur: number; round: boolean }) {
+export function LoaderGrid({ delays = chevron, dur = 650, round = false, tone = 'bg-ink' }: { delays?: (number | null)[]; dur?: number; round?: boolean; /** cell colour class */ tone?: string }) {
   return (
     <span aria-hidden className="grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]">
       {delays.map((delay, i) => (
-        <span key={i} className={`size-[4px] bg-ink ${round ? 'rounded-full' : 'rounded-[1px]'}`}
+        <span key={i} className={`size-[4px] ${tone} ${round ? 'rounded-full' : 'rounded-[1px]'}`}
           style={{ opacity: delay === null ? 0.07 : 0.15, animation: delay === null ? 'none' : `pixel-on ${dur}ms ease-in-out ${delay}ms infinite` }} />
       ))}
     </span>
@@ -32,12 +32,12 @@ function useElapsed() {
   return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
 }
 
-export default function LoadingState({ label = 'Churning', variant = 'Drive' }: { label?: string; variant?: string }) {
+export default function LoadingState({ label = 'Churning', variant = 'Drive', tone }: { label?: string; variant?: string; tone?: string }) {
   const elapsed = useElapsed();
   const { delays, dur, round } = PATTERNS[variant] ?? PATTERNS.Drive!;
   return (
     <div role="status" className="flex w-fit items-center gap-2.5">
-      <LoaderGrid delays={delays} dur={dur} round={round} />
+      <LoaderGrid delays={delays} dur={dur} round={round} tone={tone} />
       <span className="bg-clip-text text-[13px] font-medium text-transparent"
         style={{ backgroundImage: 'linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%)', backgroundSize: '200% 100%', animation: 'shimmer-text 1.4s linear infinite' }}>
         {label}

@@ -7,22 +7,20 @@ import type { Summary } from '@/lib/types';
 import type { Anchors } from '@/lib/locate';
 import { bus } from './bus';
 import { Chat } from './Chat';
-import { Check, Close, Fork, Minus, Refresh, Restore } from './Icons';
-import { Overview } from './Overview';
+import { Overview, pageHost } from './Overview';
 import { ErrorView, NoOverview } from './EmptyStates';
-import { Segmented, type Tab } from './Segmented';
-import { MinTitle } from './MinTitle';
+import { Capsule, CloseButton } from './Capsule';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
+import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { useResizableWidth } from './useResizableWidth';
+import { useCapsuleCollapse } from './useCapsuleCollapse';
 import { Button } from './bui/Button';
 import LoadingState from './bui/LoadingState';
-import { Shimmer } from './bui/Shimmer';
 
 export function App() {
   const t = useT();
   const [open, setOpen] = useState(true);
-  const [min, setMin] = useState(false);
   const [tab, setTab] = useState<Tab>('overview');
   const [url, setUrl] = useState(() => normalizeUrl(location.href));
   const [title, setTitle] = useState(document.title);
@@ -30,7 +28,6 @@ export function App() {
   const [cacheInfo, setCacheInfo] = useState<{ createdAt?: number } | null>(null);
   const [anchors, setAnchors] = useState<Anchors | undefined>(undefined);
   const [chatKey, setChatKey] = useState(0);
-  const [sideCount, setSideCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
@@ -64,7 +61,7 @@ export function App() {
     const t0 = Date.now();
     setCacheInfo(null);
     setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false);
-    if (force) { setSummary(null); setTab('overview'); setMin(false); }
+    if (force) { setSummary(null); setTab('overview'); }
     try {
       if (!force) {
         const c = await rpc('getCached', { url: u });
@@ -83,7 +80,7 @@ export function App() {
       if (stale()) return;
       setSummary(r.summary); setAnchors(r.anchors);
       if (force || !chatBusy.current) setChatKey((k) => k + 1); // a reply streaming in the chat must not be reloaded away
-      if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 2000); }
+      if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 1500); }
     } catch (e: any) {
       if (!stale()) setError(String(e.message ?? e));
     } finally { if (!stale()) setLoading(false); }
@@ -108,15 +105,26 @@ export function App() {
     return !o;
   })), [url, run]);
 
+  const { collapsed, glass, scrollRef, expand } = useCapsuleCollapse(tab);
+  const isOverview = tab === 'overview';
+
   return (
     <AnimatePresence>
       {open && (
-        <motion.div ref={rootRef} translate="no"
+        <motion.div ref={rootRef} translate="no" dir="ltr"
+          // Esc anywhere inside the panel closes it, unless a control already used it (slash menu) or an IME is composing
+          onKeyDown={(e) => { if (escClosesPanel({ key: e.key, defaultPrevented: e.defaultPrevented, isComposing: e.nativeEvent.isComposing, keyCode: e.keyCode })) { e.stopPropagation(); setOpen(false); } }}
           initial={{ opacity: 0.6, x: width + 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0.6, x: width + 20 }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-          className="notranslate pointer-events-auto fixed right-5 top-5 flex flex-col overflow-hidden bg-white font-sans text-zinc-900 antialiased"
-          style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, boxShadow: '0 8px 24px rgba(0,0,0,.1)', height: min ? 'auto' : 'calc(100vh - 40px)', border: '1px solid rgba(0,0,0,.06)' }}
+          className="notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden bg-white font-sans text-zinc-900 antialiased"
+          style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, boxShadow: '0 8px 24px rgba(0,0,0,.1)', height: 'calc(100vh - 40px)', border: '1px solid rgba(0,0,0,.06)' }}
         >
+          {/* glow under the floating controls: accent on the overview, neutral in chat; fades once reading starts */}
+          <div aria-hidden data-halo={isOverview ? 'accent' : 'neutral'}
+            className={`pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] transition-opacity duration-200 motion-reduce:transition-none ${(isOverview ? glass : collapsed) ? 'opacity-0' : 'opacity-100'}`}
+            style={{ background: isOverview
+              ? 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, #fff) 0%, color-mix(in srgb, var(--accent) 5%, #fff) 48%, #fff 100%)'
+              : 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--ink) 6%, #fff) 0%, #fff 100%)' }} />
           {/* left-edge resize handle */}
           <div
             role="separator" aria-orientation="vertical" aria-label={t.resizeHandle} title={t.resizeHandle}
@@ -126,55 +134,41 @@ export function App() {
           >
             <span className={`absolute inset-y-3 left-0.5 w-[3px] rounded-full transition-colors duration-150 ${resizing ? 'bg-accent' : 'bg-transparent group-hover:bg-line-strong'}`} />
           </div>
-          {/* top row: tabs on the left, compact icon actions on the right (also the slim bar when minimized) */}
-          <div
-            data-top-row
-            className={`flex h-12 shrink-0 items-center gap-2 pl-3 pr-2 ${min ? 'cursor-pointer hover:bg-zinc-50' : 'border-b border-zinc-100'}`}
-            title={min ? t.clickToRestore : undefined}
-            onClick={() => min && setMin(false)}
-          >
-            <Segmented value={tab} onChange={(t) => { setTab(t); setMin(false); }} generating={loading && tab === 'chat'} compact={min} />
-            {min && <MinTitle>{loading ? <Shimmer>{t.summarizing}</Shimmer> : title}</MinTitle>}
-            <div className="ml-auto flex shrink-0 items-center gap-0.5 text-ink-2">
-              {/* Refresh re-summarizes, so it only belongs to the overview. In chat the slot holds "new side chat" until side chats exist (then it moves into the session tabs). */}
-              {tab === 'overview' ? (
-                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); run(true); }} disabled={loading}
-                  title={loading ? t.summarizing : flash ? t.updated : t.resummarize} aria-label={t.resummarize}>
-                  {flash && !loading ? <Check className="h-4 w-4 text-green" /> : <Refresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />}
-                </Button>
-              ) : !min && sideCount === 0 && (
-                <Button variant="quiet" size="icon" onClick={(e) => { e.stopPropagation(); bus.emit('fork'); }} 
-                  title={t.newSide} aria-label={t.newSide}>
-                  <Fork className="h-4 w-4" />
-                </Button>
-              )}
-              <Button variant="quiet" size="icon" title={min ? t.restore : t.minimize} aria-label={min ? t.restore : t.minimize}
-                onClick={(e) => { e.stopPropagation(); setMin((m) => !m); }}>
-                {min ? <Restore /> : <Minus />}
-              </Button>
-              <Button variant="quiet" size="icon" title={t.close} aria-label={t.close} onClick={(e) => { e.stopPropagation(); setOpen(false); }}><Close /></Button>
-            </div>
-          </div>
-          {!min && (
-            <>
-              <div className="relative min-h-0 flex-1">
-                {tab === 'overview' ? (
-                  <div className="rp-scroll h-full overflow-y-auto">
-                    {loading && <div className="flex h-full flex-col overflow-hidden"><div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-4"><LoadingState label={t.summarizingLabel} /><Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button></div><div className="min-h-0 flex-1"><Skeleton /></div></div>}
-                    {!loading && error && <ErrorView error={error} retry={() => run(true)} onChat={() => setTab('chat')} />}
-                    {!loading && !error && !summary && cancelled && <NoOverview onStart={() => run(true)} onChat={() => setTab('chat')} />}
-                    {!loading && summary && (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-                        <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); setMin(false); }} />
-                      </motion.div>
-                    )}
+          <div className="relative z-[1] min-h-0 flex-1">
+            {isOverview ? (
+              <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
+                {loading && (
+                  <div className="flex h-full flex-col overflow-hidden">
+                    {/* first row while summarizing: status, timer, cancel */}
+                    <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
+                      <LoadingState label={t.summarizingLabel} tone="bg-accent" />
+                      <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
+                    </div>
+                    <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>
                   </div>
-                ) : (
-                  <Chat url={url} pageTitle={title} reloadKey={chatKey} hasSummary={!!summary} getPage={getPage} onBusy={(b) => { chatBusy.current = b; }} onSideCount={setSideCount} draft={draft} onDraftUsed={() => setDraft(null)} />
+                )}
+                {!loading && error && <ErrorView error={error} retry={() => run(true)} onChat={() => setTab('chat')} />}
+                {!loading && !error && !summary && cancelled && <NoOverview onStart={() => run(true)} onChat={() => setTab('chat')} />}
+                {!loading && summary && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+                    <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} host={pageHost()}
+                      onRegenerate={() => run(true)} regenerated={!!flash}
+                      onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); }} />
+                  </motion.div>
                 )}
               </div>
-            </>
-          )}
+            ) : (
+              <div className="flex h-full flex-col pt-10">
+                <Chat url={url} pageTitle={title} reloadKey={chatKey} hasSummary={!!summary} getPage={getPage} onBusy={(b) => { chatBusy.current = b; }} scrollRef={scrollRef} draft={draft} onDraftUsed={() => setDraft(null)} />
+              </div>
+            )}
+          </div>
+          {/* frosted strip once overview content scrolls under the capsule */}
+          {isOverview && <div aria-hidden data-frost className={`rp-frost pointer-events-none absolute inset-x-0 top-0 z-[5] h-[54px] transition-opacity duration-200 motion-reduce:transition-none ${glass ? 'opacity-100' : 'opacity-0'}`} />}
+          <div className="absolute left-1/2 top-1.5 z-[7] -translate-x-1/2" onPointerEnter={expand} onFocus={expand}>
+            <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} />
+          </div>
+          <div className="absolute right-2 top-1.5 z-[7]"><CloseButton onClose={() => setOpen(false)} /></div>
         </motion.div>
       )}
     </AnimatePresence>

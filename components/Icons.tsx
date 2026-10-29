@@ -4,8 +4,6 @@ const S = (d: React.ReactNode) => ({ className = 'w-4 h-4' }: P) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>{d}</svg>
 );
 export const Sparkle = S(<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z" />);
-export const Minus = S(<path d="M5 12h14" strokeWidth={2.4} />);
-export const Restore = S(<><rect x="5" y="5" width="14" height="14" rx="3" strokeWidth={2.2} /></>);
 export const Close = S(<path d="M6 6l12 12M18 6L6 18" />);
 export const Refresh = S(<><path d="M20 11a8 8 0 10-2.3 5.7" /><path d="M20 5v6h-6" /></>);
 export const Check = S(<path d="M5 12.5l4.5 4.5L19 7.5" strokeWidth={2.2} />);
@@ -23,3 +21,4 @@ export const BulletIcons: Record<IconType, (p: P) => React.JSX.Element> = {
 };
 
 export const Fork = S(<><circle cx="6" cy="5" r="2" /><circle cx="18" cy="5" r="2" /><circle cx="12" cy="19" r="2" /><path d="M6 7v2a3 3 0 003 3h6a3 3 0 003-3V7M12 12v5" /></>);
+export const ChatBubble = S(<path d="M5 6.5A2.5 2.5 0 017.5 4h9A2.5 2.5 0 0119 6.5v7a2.5 2.5 0 01-2.5 2.5H11l-4 3.5V16h0A2 2 0 015 14z" />);

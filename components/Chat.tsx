@@ -1,4 +1,3 @@
-import { bus } from './bus';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLang, useT } from './i18n';
 import { CHAT_PORT, rpc, type ChatEvent, type ChatRequest } from '@/lib/messages';
@@ -15,7 +14,7 @@ import { messageMarkdown } from '@/lib/copy';
 import { slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, onSideCount, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => { title: string; content: string }; onBusy?: (busy: boolean) => void; reloadKey: number; onSideCount?: (n: number) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
+export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => { title: string; content: string }; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [input, setInput] = useState('');
@@ -107,19 +106,17 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
 
   const canSend = !!input.trim() && !busy && !disabled;
 
-  // With no side chats the "new side chat" button lives in the panel header (see App).
   const sideCount = (state?.sessions.length ?? 1) - 1;
-  useEffect(() => { onSideCount?.(sideCount); }, [sideCount, onSideCount]);
-  const forkRef = useRef(() => {}); forkRef.current = () => { if (!busy && !disabled) fork(); };
-  useEffect(() => bus.on('fork', () => forkRef.current()), []);
 
   return (
     <div className="flex h-full flex-col">
       {state && state.sessions.length > 1 && <SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} />}
-      <div className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 pt-3 ${skills.length ? 'pb-11' : 'pb-3'}`}>
+      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 pt-3 ${skills.length ? 'pb-11' : 'pb-3'}`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
-            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}
+            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}{sideCount === 0
+              ? <span data-side-hint>{t.sideHintPre}<span className="text-ink-2">/side</span>{t.sideHintPost}</span>
+              : <>{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}</>}
           </p>
         )}
         {messages.map((m, i) => {

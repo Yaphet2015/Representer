@@ -15,3 +15,13 @@ describe('clampWidth', () => {
   });
   it('falls back to default for NaN', () => expect(clampWidth(NaN, 1400)).toBe(380));
 });
+
+import { viewportWidth } from '../lib/width';
+describe('viewportWidth', () => {
+  it('uses the layout width without the page scrollbar', () => {
+    expect(viewportWidth({ documentElement: { clientWidth: 1265 } }, { innerWidth: 1280 })).toBe(1265);
+  });
+  it('falls back to innerWidth when there is no document element', () => {
+    expect(viewportWidth({ documentElement: null }, { innerWidth: 1280 })).toBe(1280);
+  });
+});

@@ -1,75 +1,81 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { nextSegment } from '../components/bui/SegmentedControl';
+import { Capsule, CloseButton } from '../components/Capsule';
 import { LangProvider } from '../components/i18n';
-import { Segmented } from '../components/Segmented';
+import { SessionChips } from '../components/SessionChips';
+import { nextTab } from '../lib/capsule';
 import { messages } from '../lib/i18n';
+import { forkSession, initialState, MAIN_ID } from '../lib/sessions';
 
-const render = (p: Parameters<typeof Segmented>[0]) => renderToStaticMarkup(<LangProvider><Segmented {...p} /></LangProvider>);
+const render = (node: React.ReactNode) => renderToStaticMarkup(<LangProvider>{node}</LangProvider>);
+const cap = (p: Partial<Parameters<typeof Capsule>[0]> = {}) => render(<Capsule value="overview" onChange={() => {}} {...p} />);
 const tab = (html: string, id: string) => html.match(new RegExp(`<button[^>]*data-tab="${id}"[^>]*>`))![0];
 
-describe('header tabs', () => {
-  it('is a tablist of two tabs with aria-selected on the current one', () => {
-    const html = render({ value: 'chat', onChange: () => {} });
+describe('floating capsule', () => {
+  it('is a tablist of two tabs; the selected one is light accent and the only tab stop', () => {
+    const html = cap({ value: 'chat' });
     expect(html).toMatch(/role="tablist"/);
     expect(html.match(/role="tab"/g)).toHaveLength(2);
     expect(tab(html, 'chat')).toContain('aria-selected="true"');
+    expect(tab(html, 'chat')).toContain('text-accent-ink');
+    expect(tab(html, 'chat')).toContain('tabindex="0"');
     expect(tab(html, 'overview')).toContain('aria-selected="false"');
+    expect(tab(html, 'overview')).toContain('tabindex="-1"');
+    expect(tab(html, 'overview')).toContain('hover:bg-hover-2');
   });
 
-  it('marks only the selected cell as solid ink and focusable (roving tabindex)', () => {
-    const html = render({ value: 'overview', onChange: () => {} });
-    expect(html.match(/data-tab-pill/g)).toHaveLength(1);
-    expect(tab(html, 'overview')).toContain('tabindex="0"');
-    expect(tab(html, 'chat')).toContain('tabindex="-1"');
-    expect(tab(html, 'chat')).toContain('hover:bg-hover-2');
+  it('collapses to icons: labels leave the layout and the name moves to title / aria-label', () => {
+    const html = cap({ collapsed: true });
+    expect(html).toContain('data-collapsed="true"');
+    expect(tab(html, 'overview')).toContain('w-7 px-0');
+    expect(tab(html, 'overview')).toContain(`title="${messages('en').tabOverview}"`);
+    expect(html).toMatch(/data-label[^>]*hidden/);
+    expect(cap()).not.toContain('data-collapsed');
   });
 
-  it('never disables a tab, whichever page is open', () => {
-    for (const value of ['overview', 'chat'] as const) for (const generating of [false, true]) {
-      const html = render({ value, onChange: () => {}, generating });
-      expect(tab(html, 'overview')).not.toMatch(/ disabled(=| |>)/);
-      expect(tab(html, 'chat')).not.toMatch(/ disabled(=| |>)/);
-    }
+  it('shows the flowing border and pixel loader only while summarizing', () => {
+    expect(cap({ summarizing: true })).toContain('data-flow');
+    expect(cap({ summarizing: true })).toContain(messages('en').summarizing);
+    expect(cap()).not.toContain('data-flow');
   });
 
-  it('shows the pulsing dot after the overview label only while it generates in the background', () => {
-    expect(render({ value: 'chat', onChange: () => {} })).not.toContain('data-generating');
-    const html = render({ value: 'chat', onChange: () => {}, generating: true });
-    expect(html.match(/data-generating/g)).toHaveLength(1);
-    const label = (h: string, id: string) => h.slice(h.indexOf(`data-tab="${id}"`)).match(/<span class="relative inline-flex items-center ([^"]*)"/)![1];
-    expect(label(html, 'overview')).toBe('px-2'); // tighter padding makes room for the dot
-    expect(label(html, 'chat')).toBe('px-3');
-    expect(html.indexOf('data-generating')).toBeGreaterThan(html.indexOf('data-tab="overview"'));
-    expect(html.indexOf('data-generating')).toBeLessThan(html.indexOf('data-tab="chat"'));
+  it('keeps close outside the tab list, named and hinting Esc', () => {
+    expect(cap()).not.toContain('data-close');
+    const html = render(<CloseButton onClose={() => {}} />);
+    expect(html).toContain(`aria-label="${messages('en').close}"`);
+    expect(html).toContain('title="Close · Esc"');
   });
 
-  it('keeps the cells filling the row, or fixed-size when minimized', () => {
-    expect(render({ value: 'overview', onChange: () => {} })).toMatch(/max-w-\[300px\] flex-1/);
-    const min = render({ value: 'overview', onChange: () => {}, compact: true });
-    expect(min).toContain('flex-none');
-    expect(min).toContain('px-[14px]');
-    expect(min).not.toContain('flex-1 text'); // cells do not stretch
+  it('arrow keys wrap, Home/End jump, other keys do nothing', () => {
+    expect(nextTab('overview', 'ArrowRight')).toBe('chat');
+    expect(nextTab('overview', 'ArrowLeft')).toBe('chat');
+    expect(nextTab('chat', 'ArrowRight')).toBe('overview');
+    expect(nextTab('chat', 'Home')).toBe('overview');
+    expect(nextTab('overview', 'End')).toBe('chat');
+    expect(nextTab('overview', 'Enter')).toBeNull();
   });
 
-  it('has labels and an accessible name in both languages', () => {
-    for (const lang of ['zh-CN', 'en'] as const) {
-      const m = messages(lang);
-      expect(m.tabOverview && m.tabChat && m.tabsLabel).toBeTruthy();
-    }
+  it('has no header bar or minimize left in the panel', () => {
+    const app = readFileSync('components/App.tsx', 'utf8');
+    expect(app).not.toMatch(/data-top-row|setMin|minimize/);
+    expect(app).toContain('dir="ltr"');
+    expect(Object.keys(messages('zh-CN'))).not.toContain('minimize');
   });
 });
 
-describe('keyboard navigation', () => {
-  const items = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C', disabled: true }];
-  it('moves with the arrow keys, wrapping around', () => {
-    expect(nextSegment(items, 'a', 'ArrowRight')).toBe('b');
-    expect(nextSegment(items, 'b', 'ArrowRight')).toBe('a');
-    expect(nextSegment(items, 'a', 'ArrowLeft')).toBe('b');
-  });
-  it('jumps with Home/End, skips disabled cells and ignores other keys', () => {
-    expect(nextSegment(items, 'a', 'End')).toBe('b');
-    expect(nextSegment(items, 'b', 'Home')).toBe('a');
-    expect(nextSegment(items, 'a', 'Enter')).toBeNull();
+describe('side chat row', () => {
+  const two = forkSession(initialState(), MAIN_ID, 0, 'side-a').state;
+  it('scrolls only the chips; the fork icon button sits outside at the far right', () => {
+    const html = render(<SessionChips state={two} onSwitch={() => {}} onClose={() => {}} onFork={() => {}} disabled={false} />);
+    const scroller = html.indexOf('data-chips-scroller');
+    const fork = html.indexOf('data-fork');
+    expect(scroller).toBeGreaterThan(-1);
+    expect(fork).toBeGreaterThan(scroller);
+    // the fork button is a sibling after the scroller closes, not inside it
+    const inner = html.slice(scroller, fork);
+    expect((inner.match(/<div/g) ?? []).length).toBeLessThanOrEqual((inner.match(/<\/div>/g) ?? []).length + 1);
+    expect(html).toContain(`title="${messages('en').newSideTitle}"`);
+    expect(html).toMatch(/data-fork[^>]*size-6/);
   });
 });
