@@ -14,6 +14,26 @@ import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { guardScroll } from '@/lib/scroll-guard';
+import { GLASS_LIGHT, glassAlpha, sampleBehind } from '@/lib/glass';
+
+const both = (a: () => void, b: () => void) => () => { a(); b(); };
+
+/** Keep the panel's glass opacity (--glass-a) in step with what the page shows behind it: on open, after scrolling, on resize. */
+function followBackdrop(panel: HTMLElement): () => void {
+  const host = (panel.getRootNode() as ShadowRoot).host ?? panel;
+  let timer = 0;
+  const update = () => {
+    const r = panel.getBoundingClientRect();
+    if (!r.width) return;
+    panel.style.setProperty('--glass-a', String(glassAlpha(sampleBehind(r, host))));
+  };
+  const later = () => { clearTimeout(timer); timer = window.setTimeout(update, 200); };
+  panel.style.setProperty('--glass-a', String(GLASS_LIGHT));
+  later();
+  window.addEventListener('scroll', later, { passive: true, capture: true });
+  window.addEventListener('resize', later);
+  return () => { clearTimeout(timer); window.removeEventListener('scroll', later, { capture: true }); window.removeEventListener('resize', later); };
+}
 import { useResizableWidth } from './useResizableWidth';
 import { useCapsuleCollapse } from './useCapsuleCollapse';
 import { Button } from './bui/Button';
@@ -52,7 +72,7 @@ export function App() {
   const unguard = useRef<() => void>(() => {});
   const rootRef = useCallback((el: HTMLElement | null) => {
     // wheel / touch inside the panel never scrolls the host page
-    unguard.current(); unguard.current = el ? guardScroll(el) : () => {};
+    unguard.current(); unguard.current = el ? both(guardScroll(el), followBackdrop(el)) : () => {};
     const host = (el?.getRootNode() as ShadowRoot | undefined)?.host as HTMLElement | undefined;
     if (host) host.setAttribute('lang', lang);
     el?.setAttribute('lang', lang);
@@ -120,13 +140,14 @@ export function App() {
           onKeyDown={(e) => { if (escClosesPanel({ key: e.key, defaultPrevented: e.defaultPrevented, isComposing: e.nativeEvent.isComposing, keyCode: e.keyCode })) { e.stopPropagation(); setOpen(false); } }}
           initial={{ opacity: 0.6, x: width + 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0.6, x: width + 20 }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-          className="notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden bg-white font-sans text-zinc-900 antialiased"
-          style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, boxShadow: '0 8px 24px rgba(0,0,0,.1)', height: 'calc(100vh - 40px)', border: '1px solid rgba(0,0,0,.06)' }}
+          // whole-panel frosted glass; --glass-a follows the page behind (lib/glass.ts), secondary text one step darker on glass
+          className="rp-panel-glass notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden font-sans text-zinc-900 antialiased"
+          style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, height: 'calc(100vh - 40px)' }}
         >
           {/* blue glow under the floating controls, on both pages; fades once content scrolls under them */}
           <div aria-hidden data-halo
             className={`pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] transition-opacity duration-200 motion-reduce:transition-none ${glass ? 'opacity-0' : 'opacity-100'}`}
-            style={{ background: 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, #fff) 0%, color-mix(in srgb, var(--accent) 5%, #fff) 48%, #fff 100%)' }} />
+            style={{ background: 'radial-gradient(110% 100% at 50% 0%, color-mix(in srgb, var(--accent) 13%, transparent) 0%, color-mix(in srgb, var(--accent) 5%, transparent) 48%, transparent 100%)' }} />
           {/* left-edge resize handle */}
           <div
             role="separator" aria-orientation="vertical" aria-label={t.resizeHandle} title={t.resizeHandle}

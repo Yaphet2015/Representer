@@ -22,3 +22,6 @@ export const BulletIcons: Record<IconType, (p: P) => React.JSX.Element> = {
 
 export const Fork = S(<><circle cx="6" cy="5" r="2" /><circle cx="18" cy="5" r="2" /><circle cx="12" cy="19" r="2" /><path d="M6 7v2a3 3 0 003 3h6a3 3 0 003-3V7M12 12v5" /></>);
 export const ChatBubble = S(<path d="M5 6.5A2.5 2.5 0 017.5 4h9A2.5 2.5 0 0119 6.5v7a2.5 2.5 0 01-2.5 2.5H11l-4 3.5V16h0A2 2 0 015 14z" />);
+export const Plus = S(<path d="M12 5v14M5 12h14" />);
+export const Translate = S(<><path d="M4 5h8M8 3v2M6 5c0 4 2.5 7 6 8M10 5c-.5 3.5-3 6.5-6 8" /><path d="M13 21l4-9 4 9M14.5 18h5" /></>);
+export const QuizIcon = S(<><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01" /></>);

@@ -6,12 +6,11 @@ import { getSession, MAIN_ID, parseSide, sessionLabel, type SessionsState } from
 import { createSkillStore, localizeSkill, renderTemplate, type Skill } from '@/lib/skills';
 import type { ChatMessage } from '@/lib/types';
 import { SessionChips } from './SessionChips';
-import { SkillsRow } from './SkillsRow';
 import { Composer } from './Composer';
 import { Markdown } from './Markdown';
 import { CopyButton } from './CopyButton';
 import { messageMarkdown } from '@/lib/copy';
-import { slashItems, type SlashItem } from './SlashMenu';
+import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 
 
 export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => { title: string; content: string }; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
@@ -103,21 +102,24 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
     if (it.skill) { runSkill(it.skill, ''); return; }
     setInput('/side '); inputRef.current?.focus();
   };
+  // from the + menu: what is already typed becomes the Skill's input / the side chat's first message
+  const pickQuick = (it: SlashItem) => {
+    if (it.skill) { runSkill(it.skill, input); return; }
+    setInput('/side ' + input.trimStart()); inputRef.current?.focus();
+  };
 
   const canSend = !!input.trim() && !busy && !disabled;
 
   const sideCount = (state?.sessions.length ?? 1) - 1;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {state && state.sessions.length > 1 && <div className="mt-10 shrink-0"><SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} /></div>}
-      {/* without side chats the messages start under the floating capsule and scroll beneath it */}
-      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${sideCount > 0 ? 'pt-3' : 'pt-14'} ${skills.length ? 'pb-11' : 'pb-3'}`}>
+      {/* without side chats the messages start under the floating capsule and scroll beneath it; the bottom padding lets the last message scroll clear of the floating composer */}
+      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${sideCount > 0 ? 'pt-3' : 'pt-14'} pb-[150px]`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
-            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}{sideCount === 0
-              ? <span data-side-hint>{t.sideHintPre}<span className="text-ink-2">/side</span>{t.sideHintPost}</span>
-              : <>{t.slashHintPre}<span className="text-ink-2">/</span>{t.slashHintPost}</>}
+            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}<span data-quick-hint>{t.quickHintPre}<span className="text-ink-2">+</span>{t.quickHintMid}<span className="text-ink-2">/</span>{t.quickHintPost}</span>
           </p>
         )}
         {messages.map((m, i) => {
@@ -125,7 +127,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
           return m.role === 'user' ? (
             <div key={i} data-msg="user" className="group flex items-end justify-end gap-1 pl-8" style={{ animation: 'pop-in 200ms cubic-bezier(0.23,1,0.32,1) both' }}>
               <CopyButton reveal tip="bottom" className="mb-0.5" label={t.copyMessage} getText={() => messageMarkdown(m.content)} />
-              <div className={`min-w-0 whitespace-pre-wrap break-words rounded-xl px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'bg-accent-tint text-accent-ink' : 'bg-field text-ink'}`} title={m.label ? m.content : undefined}>
+              <div className={`min-w-0 whitespace-pre-wrap break-words rounded-xl border px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'border-[color-mix(in_srgb,var(--accent)_22%,transparent)] bg-[color-mix(in_srgb,var(--accent)_12%,#fff)] text-accent-ink' : 'border-black/[.08] bg-[color-mix(in_srgb,var(--ink)_7%,#fff)] text-ink'}`} title={m.label ? m.content : undefined}>
                 {m.label ?? m.content}
               </div>
             </div>
@@ -147,14 +149,15 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
         })}
         <div ref={end} />
       </div>
-      <div className="relative shrink-0">
-        <SkillsRow skills={skills} onRun={(s) => runSkill(s)} disabled={busy || disabled} yield={showSlash} />
-        <Composer
-          value={input} onChange={setInput} onSubmit={submit} disabled={disabled} canSend={canSend}
-          slashItems={showSlash ? items : []} onPickSlash={pickSlash} inputRef={inputRef}
-          status={sid === MAIN_ID ? '' : t.current(sessionLabel(getSession(state!, sid)!, lang))}
-        />
-      </div>
+      {/* blue glow rising from the bottom behind the floating composer */}
+      <div aria-hidden data-bottom-glow className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-[180px]"
+        style={{ background: 'radial-gradient(110% 100% at 50% 100%, color-mix(in srgb, var(--accent) 13%, transparent) 0%, color-mix(in srgb, var(--accent) 5%, transparent) 48%, transparent 100%)' }} />
+      <Composer
+        value={input} onChange={setInput} onSubmit={submit} disabled={disabled} canSend={canSend}
+        slashItems={showSlash ? items : []} onPickSlash={pickSlash}
+        quickItems={busy ? [] : quickItems(skills, t)} onPickQuick={pickQuick} inputRef={inputRef}
+        status={sid === MAIN_ID ? '' : t.current(sessionLabel(getSession(state!, sid)!, lang))}
+      />
     </div>
   );
 }

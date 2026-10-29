@@ -64,6 +64,24 @@ describe('floating capsule', () => {
     expect(app.match(/var\(--accent\) 13%/g)).toHaveLength(1);
   });
 
+  it('both blue glows (top and bottom) fade to transparent, not white, so the glass shows through', () => {
+    for (const f of ['components/App.tsx', 'components/Chat.tsx']) {
+      const src = readFileSync(f, 'utf8');
+      const glow = src.match(/radial-gradient\([^']*/)![0];
+      expect(glow, f).toContain('var(--accent) 13%, transparent');
+      expect(glow, f).not.toMatch(/#fff/);
+    }
+  });
+
+  it('the panel is frosted glass (.82, blur 28 + saturate 1.1) and secondary text uses ink-2', () => {
+    const css = readFileSync('assets/tailwind.css', 'utf8');
+    const rule = css.match(/\.rp-panel-glass \{[^}]*\}/)![0];
+    expect(rule).toContain('--glass-a: .82');
+    expect(rule).toContain('--ink-3: var(--ink-2)');
+    expect(rule).toContain('backdrop-filter: blur(28px) saturate(1.1)');
+    expect(readFileSync('components/App.tsx', 'utf8')).toContain('rp-panel-glass');
+  });
+
   it('arrow keys wrap, Home/End jump, other keys do nothing', () => {
     expect(nextTab('overview', 'ArrowRight')).toBe('chat');
     expect(nextTab('overview', 'ArrowLeft')).toBe('chat');
