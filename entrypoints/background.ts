@@ -1,8 +1,9 @@
 import { createCache } from '@/lib/cache';
-import { CHAT_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
+import { CHAT_PORT, SUMMARY_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
 import { listModels, testConnection } from '@/lib/models';
 import { providerFor } from '@/lib/provider';
 import { chatContext, createSummarizeRunner } from '@/lib/summarize-run';
+import { serveSummaryPort } from '@/lib/summarize-stream';
 import { appendMessages, closeSession, forkSession, setActive } from '@/lib/sessions';
 import { messages, resolveLang, uiLanguage } from '@/lib/i18n';
 import { chromeKV, loadSettings } from '@/lib/storage';
@@ -54,6 +55,18 @@ export default defineBackground(() => {
     if (!handler) return false; // e.g. the content script's own TOGGLE
     handler(msg).then((r) => reply({ ok: true, ...r }), (e) => reply({ ok: false, error: String(e?.message ?? e) }));
     return true;
+  });
+
+  // ── streaming overview ──────────────────────────────────────────────────
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== SUMMARY_PORT) return;
+    serveSummaryPort(port, {
+      cache, runner: summarizer,
+      summarize: async ({ url, title, content }, signal, onDelta, onThinking) => {
+        const { s, lang } = await ctx();
+        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking);
+      },
+    });
   });
 
   // ── streaming chat ──────────────────────────────────────────────────────

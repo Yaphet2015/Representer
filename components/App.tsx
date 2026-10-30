@@ -12,6 +12,9 @@ import { ErrorView, NoOverview } from './EmptyStates';
 import { Capsule, CloseButton } from './Capsule';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
+import { streamSummary } from '@/lib/summary-client';
+import { createThoughtTicker } from '@/lib/thinking';
+import { ThoughtLine } from './ThoughtLine';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { guardScroll } from '@/lib/scroll-guard';
 import { GLASS_LIGHT, glassAlpha, sampleBehind } from '@/lib/glass';
@@ -50,6 +53,15 @@ export function App() {
   const [anchors, setAnchors] = useState<Anchors | undefined>(undefined);
   const [chatKey, setChatKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  /** what is readable of the overview while it streams in (null until the first text) */
+  const [partial, setPartial] = useState<Summary | null>(null);
+  /** the reasoning sentence shown in the status row before any of the answer arrives ('' = the plain status text) */
+  const [thought, setThought] = useState('');
+  /** when the running summary started: the status timer keeps counting when the row switches to the streaming overview */
+  const [startedAt, setStartedAt] = useState(0);
+  /** the running stream; stopping it closes its port, which cancels the model call */
+  const stream = useRef<{ stop(): void } | null>(null);
+  const stopStream = () => { stream.current?.stop(); stream.current = null; };
   const [error, setError] = useState('');
   const [flash, setFlash] = useState('');
   /** the automatic summary was cancelled and there is no overview to show */
@@ -84,7 +96,8 @@ export function App() {
     const u = normalizeUrl(location.href);
     const t0 = Date.now();
     setCacheInfo(null);
-    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false);
+    stopStream();
+    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStartedAt(Date.now());
     if (force) { setSummary(null); setTab('overview'); }
     try {
       if (!force) {
@@ -95,9 +108,13 @@ export function App() {
       pageRef.current = null;
       const page = getPage();
       setTitle(page.title);
-      const r = await rpc('summarize', { url: u, title: page.title, content: page.content, anchors: page.anchors, force });
+      const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
+      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d));
+      stream.current = st;
+      const r = await st.done.finally(() => ticker.stop());
+      if (stream.current === st) stream.current = null;
       if (stale()) return; // cancelled (or replaced) meanwhile
-      if (!r.ok) throw new Error(r.error);
+      if ('error' in r) throw new Error(r.error);
       if ('cancelled' in r) { setCancelled(true); return; }
       // keep the skeleton visible briefly so a fast re-summarize still reads as "something happened"
       if (force) await new Promise((res) => setTimeout(res, Math.max(0, 500 - (Date.now() - t0))));
@@ -106,16 +123,16 @@ export function App() {
       if (force || !chatBusy.current) setChatKey((k) => k + 1); // a reply streaming in the chat must not be reloaded away
       if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 1500); }
     } catch (e: any) {
-      if (!stale()) setError(String(e.message ?? e));
-    } finally { if (!stale()) setLoading(false); }
+      if (!stale()) setError(String(e.message ?? e)); // a stream that fails midway drops its partial overview
+    } finally { if (!stale()) { setLoading(false); setPartial(null); } }
   }, [getPage]);
 
   /** Stop the running summary: the request is aborted in the background and nothing is cached. */
   const cancel = useCallback(async () => {
     runId.current++;
     const u = normalizeUrl(location.href);
-    rpc('cancelSummarize', { url: u });
-    setError('');
+    stopStream();
+    setError(''); setPartial(null);
     // a cancelled refresh falls back to the overview that is still cached, if any
     const c = await rpc('getCached', { url: u });
     if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setCancelled(false); }
@@ -124,6 +141,14 @@ export function App() {
   }, []);
 
   useEffect(() => { run(false); }, [run]);
+  // Closing the panel mid-stream cancels the run (nothing is cached); opening it again starts over (or reads the cache).
+  const resumeOnOpen = useRef(false);
+  const loadingRef = useRef(loading); loadingRef.current = loading;
+  useEffect(() => {
+    if (!open && loadingRef.current && stream.current) { runId.current++; stopStream(); setLoading(false); setPartial(null); resumeOnOpen.current = true; }
+    else if (open && resumeOnOpen.current) { resumeOnOpen.current = false; run(false); }
+  }, [open, run]);
+  useEffect(() => () => stopStream(), []);
   useEffect(() => bus.on('toggle', () => setOpen((o) => {
     if (!o && normalizeUrl(location.href) !== url) run(false); // SPA navigation
     return !o;
@@ -160,12 +185,17 @@ export function App() {
           <div className="relative z-[1] min-h-0 flex-1">
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
-                {loading && (
+                {loading && partial && (
+                  <Overview streaming startedAt={startedAt} summary={partial} pageTitle={title} host={pageHost()}>
+                    <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
+                  </Overview>
+                )}
+                {loading && !partial && (
                   <div className="flex h-full flex-col overflow-hidden">
                     {/* first row while summarizing: status, timer, cancel */}
                     <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
-                      <LoadingState label={t.summarizingLabel} tone="bg-accent" />
-                      <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
+                      <LoadingState label={thought ? <ThoughtLine line={thought} /> : t.summarizingLabel} tone="bg-accent" since={startedAt} />
+                      <Button variant="secondary" size="xs" data-cancel onClick={cancel} className="shrink-0">{t.cancelSummary}</Button>
                     </div>
                     <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>
                   </div>

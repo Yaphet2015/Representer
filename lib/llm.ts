@@ -36,6 +36,8 @@ const now = () => Date.now();
 export async function runTurn(
   s: Settings, instructions: string, history: ChatMessage[], input: string,
   onDelta?: (t: string) => void, signal?: AbortSignal, tools?: Extension | null,
+  /** the model's reasoning as it streams (OpenAI-compatible `reasoning` / `reasoning_content`); never part of the answer */
+  onThinking?: (t: string) => void,
 ): Promise<string> {
   if (signal?.aborted) throw new AbortError();
   const ctx = BACKGROUND_CONTEXT;
@@ -57,15 +59,22 @@ export async function runTurn(
       }, ctx);
     }
     let streamed = '';
-    const events = onDelta ? await watchEvents(harness, root.id, ctx) : null;
+    const events = onDelta || onThinking ? await watchEvents(harness, root.id, ctx) : null;
     events?.start(async (batch: readonly any[]) => {
-      const emit = (d: string) => { if (d) { streamed += d; onDelta!(d); } };
+      const emit = (d: string) => { if (d && onDelta) { streamed += d; onDelta(d); } };
+      const think = (d: string) => { if (d) onThinking?.(d); };
       for (const e of batch) {
         // the assistant message_start can already carry the first chunk(s) of text
         if (e.type === 'message_start' && e.message?.role === 'assistant')
-          for (const b of e.message.content ?? []) if (b.type === 'text') emit(b.text);
+          for (const b of e.message.content ?? []) { if (b.type === 'text') emit(b.text); else if (b.type === 'thinking') think(b.thinking); }
         if (e.type === 'message_update')
-          for (const c of e.changes) if (c.type === 'text_delta') emit(c.delta);
+          for (const c of e.changes) {
+            if (c.type === 'text_delta') emit(c.delta);
+            // a new text block arrives with its first chunk inside (after thinking, it is the start of the answer)
+            else if (c.type === 'text_start') emit(c.block?.text ?? '');
+            else if (c.type === 'thinking_delta') think(c.delta);
+            else if (c.type === 'thinking_start') think(c.block?.thinking ?? '');
+          }
       }
     });
     const submission = await root.submit({ type: 'input', content: input }, ctx);

@@ -7,6 +7,7 @@ const zh = {
   mockAutoDesc: '当前没有填写 API Key，所以会自动使用 Mock；填写 Key 后可自由开关。',
   mockHint: '没有填写 API Key 时会自动使用（localhost 等本地地址除外）。',
   mockPage: '这个页面',
+  mockThinking: (t: string) => `先通读「${t}」，找出作者最想说明的核心观点。接着看看文章用了哪些例子来解释背后的机制。然后把可以落地的建议单独归成一节。最后检查每一节都能对应到原文的段落，再按 JSON 格式输出。`,
   mockOverview: (t: string) => `这是「${t}」的模拟总结。文章先提出一个==核心观点：先理解机制，再谈做法==，再用具体例子解释背后的机制，最后给出可以落地的[[实践建议]]。开启 [[Mock 模式]]后，不需要真实模型和 API Key 也能完整预览 Representer 的界面流程。`,
   mockSections: [
     ['核心观点', ['点明页面要解决的主要问题', '说明这个问题为什么重要', '为后文的论证做铺垫']],
@@ -22,6 +23,7 @@ const en: typeof zh = {
   mockAutoDesc: 'No API key is set, so mock mode is used automatically. Add a key to toggle it freely.',
   mockHint: 'Used automatically when no API key is set (except for local addresses such as localhost).',
   mockPage: 'this page',
+  mockThinking: (t) => `First, read “${t}” through and find the core idea the author wants to make. Next, look at which examples explain the mechanism behind it. Then group the practical advice into its own section. Finally, check that every section maps back to a paragraph before writing the JSON. `,
   mockOverview: (t) => `This is a sample summary of “${t}”. The article opens with ==a core idea: understand the mechanism before the method==, explains it with concrete examples, and ends with [[practical advice]]. In [[mock mode]] you can preview the whole Representer experience without a real model or API key.`,
   mockSections: [
     ['Core idea', ['States the main problem the page tackles', 'Explains why the problem matters', 'Sets up the argument that follows']],
