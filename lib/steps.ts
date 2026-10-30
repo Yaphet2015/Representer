@@ -81,8 +81,8 @@ export function missingSteps(steps: Step[], summary: Summary): Step[] {
  * The caller reuses its original instructions, input, transport and cancellation signal. `onDelta` streams the first
  * attempt only: a step retry is a quality pass that replaces the result when it is done, not something to re-stream.
  */
-export async function summarizeWithSteps(content: string, generate: (feedback?: string, signal?: AbortSignal, onDelta?: (t: string) => void) => Promise<string>, signal?: AbortSignal, onDelta?: (t: string) => void): Promise<Summary> {
-  const first = parseSummary(await generate(undefined, signal, onDelta), content);
+export async function summarizeWithSteps(content: string, generate: (feedback?: string, signal?: AbortSignal, onDelta?: (t: string) => void, onThinking?: (t: string) => void) => Promise<string>, signal?: AbortSignal, onDelta?: (t: string) => void, onThinking?: (t: string) => void): Promise<Summary> {
+  const first = parseSummary(await generate(undefined, signal, onDelta, onThinking), content);
   const steps = detectSteps(content);
   const missing = missingSteps(steps, first);
   if (!missing.length || signal?.aborted) return first;

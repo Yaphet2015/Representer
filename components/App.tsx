@@ -13,6 +13,8 @@ import { Capsule, CloseButton } from './Capsule';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
+import { createThoughtTicker } from '@/lib/thinking';
+import { ThoughtLine } from './ThoughtLine';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { guardScroll } from '@/lib/scroll-guard';
 import { GLASS_LIGHT, glassAlpha, sampleBehind } from '@/lib/glass';
@@ -53,6 +55,10 @@ export function App() {
   const [loading, setLoading] = useState(false);
   /** what is readable of the overview while it streams in (null until the first text) */
   const [partial, setPartial] = useState<Summary | null>(null);
+  /** the reasoning sentence shown in the status row before any of the answer arrives ('' = the plain status text) */
+  const [thought, setThought] = useState('');
+  /** when the running summary started: the status timer keeps counting when the row switches to the streaming overview */
+  const [startedAt, setStartedAt] = useState(0);
   /** the running stream; stopping it closes its port, which cancels the model call */
   const stream = useRef<{ stop(): void } | null>(null);
   const stopStream = () => { stream.current?.stop(); stream.current = null; };
@@ -91,7 +97,7 @@ export function App() {
     const t0 = Date.now();
     setCacheInfo(null);
     stopStream();
-    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null);
+    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStartedAt(Date.now());
     if (force) { setSummary(null); setTab('overview'); }
     try {
       if (!force) {
@@ -102,9 +108,10 @@ export function App() {
       pageRef.current = null;
       const page = getPage();
       setTitle(page.title);
-      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); });
+      const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
+      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d));
       stream.current = st;
-      const r = await st.done;
+      const r = await st.done.finally(() => ticker.stop());
       if (stream.current === st) stream.current = null;
       if (stale()) return; // cancelled (or replaced) meanwhile
       if ('error' in r) throw new Error(r.error);
@@ -179,7 +186,7 @@ export function App() {
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
                 {loading && partial && (
-                  <Overview streaming summary={partial} pageTitle={title} host={pageHost()}>
+                  <Overview streaming startedAt={startedAt} summary={partial} pageTitle={title} host={pageHost()}>
                     <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
                   </Overview>
                 )}
@@ -187,8 +194,8 @@ export function App() {
                   <div className="flex h-full flex-col overflow-hidden">
                     {/* first row while summarizing: status, timer, cancel */}
                     <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
-                      <LoadingState label={t.summarizingLabel} tone="bg-accent" />
-                      <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
+                      <LoadingState label={thought ? <ThoughtLine line={thought} /> : t.summarizingLabel} tone="bg-accent" since={startedAt} />
+                      <Button variant="secondary" size="xs" data-cancel onClick={cancel} className="shrink-0">{t.cancelSummary}</Button>
                     </div>
                     <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>
                   </div>

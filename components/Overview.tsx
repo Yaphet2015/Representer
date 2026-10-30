@@ -161,7 +161,7 @@ export const pageHost = () => (typeof location === 'undefined' ? '' : location.h
  * `streaming`: a partial overview still being written (lib/partial-json.ts). The first row then shows the status and
  * `children` (the cancel button) instead of the actions, nothing links to the page yet, and a caret marks the end.
  */
-export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, children }: { fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode }) {
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, children }: { startedAt?: number; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode }) {
   const t = useT();
   const ok = useLocatable(summary, anchors, !streaming);
   const lastSec = summary.sections.length - 1;
@@ -172,7 +172,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
         <div className="mb-1.5">
           {streaming ? (
             <div data-status-row className="flex h-6 items-center justify-between gap-2">
-              <LoadingState label={t.summarizingLabel} tone="bg-accent" />
+              <LoadingState label={t.summarizingLabel} tone="bg-accent" since={startedAt} />
               {children}
             </div>
           ) : (

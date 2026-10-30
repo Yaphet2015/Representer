@@ -74,10 +74,14 @@ export function mockSummaryJson(summary: Summary): string {
  * Dev-only: the mock summary, streamed as its JSON in small chunks the way a model writes it (after a short "thinking"
  * pause), so the progressive overview can be tried without a key. Resolves to exactly buildMockSummary's result.
  */
-export async function mockSummaryStream(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onDelta?: (t: string) => void, tokenMs = 25): Promise<Summary> {
+export async function mockSummaryStream(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onDelta?: (t: string) => void, tokenMs = 25, onThinking?: (t: string) => void): Promise<Summary> {
   const summary = buildMockSummary(title, lang, content);
   if (!onDelta) { await sleep(MOCK_DELAY_MS, signal); return summary; }
-  await sleep(MOCK_DELAY_MS / 3, signal);
+  if (onThinking) {
+    // a reasoning model thinks first: a few sentences, streamed a little faster than the answer
+    const thought = mockText(lang).mockThinking(title.trim() || mockText(lang).mockPage);
+    for (let i = 0; i < thought.length; i += 3) { await sleep(tokenMs * 2, signal); onThinking(thought.slice(i, i + 3)); }
+  } else await sleep(MOCK_DELAY_MS / 3, signal);
   const json = mockSummaryJson(summary);
   for (let i = 0; i < json.length; i += 6) { await sleep(tokenMs, signal); onDelta(json.slice(i, i + 6)); }
   return summary;
