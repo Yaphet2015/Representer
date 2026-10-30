@@ -13,6 +13,7 @@ export function useMock(s: Settings): boolean {
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((res, rej) => {
+  if (signal?.aborted) return rej(new Error('aborted'));
   const t = setTimeout(res, ms);
   signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('aborted')); });
 });
@@ -58,6 +59,28 @@ export function buildMockSummary(title: string, lang: Lang = 'zh-CN', content = 
 export async function mockSummary(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = ''): Promise<Summary> {
   await sleep(MOCK_DELAY_MS, signal);
   return buildMockSummary(title, lang, content);
+}
+
+/** The JSON a model would write for the mock summary (what parseSummary reads back into buildMockSummary's result). */
+export function mockSummaryJson(summary: Summary): string {
+  return JSON.stringify({
+    overview: summary.overview,
+    sections: summary.sections.map((s) => ({ title: s.title, anchor: s.anchor ?? '', icon: s.icon, bullets: s.bullets.map((text, i) => ({ text, anchor: s.anchors?.[i] ?? '' })) })),
+    quote: summary.quote ?? null,
+  });
+}
+
+/**
+ * Dev-only: the mock summary, streamed as its JSON in small chunks the way a model writes it (after a short "thinking"
+ * pause), so the progressive overview can be tried without a key. Resolves to exactly buildMockSummary's result.
+ */
+export async function mockSummaryStream(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onDelta?: (t: string) => void, tokenMs = 25): Promise<Summary> {
+  const summary = buildMockSummary(title, lang, content);
+  if (!onDelta) { await sleep(MOCK_DELAY_MS, signal); return summary; }
+  await sleep(MOCK_DELAY_MS / 3, signal);
+  const json = mockSummaryJson(summary);
+  for (let i = 0; i < json.length; i += 6) { await sleep(tokenMs, signal); onDelta(json.slice(i, i + 6)); }
+  return summary;
 }
 
 export function mockReplyText(question: string, lang: Lang = 'zh-CN'): string {

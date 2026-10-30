@@ -65,7 +65,11 @@ export async function runTurn(
         if (e.type === 'message_start' && e.message?.role === 'assistant')
           for (const b of e.message.content ?? []) if (b.type === 'text') emit(b.text);
         if (e.type === 'message_update')
-          for (const c of e.changes) if (c.type === 'text_delta') emit(c.delta);
+          for (const c of e.changes) {
+            if (c.type === 'text_delta') emit(c.delta);
+            // a new text block arrives with its first chunk inside (after thinking, it is the start of the answer)
+            else if (c.type === 'text_start') emit(c.block?.text ?? '');
+          }
       }
     });
     const submission = await root.submit({ type: 'input', content: input }, ctx);

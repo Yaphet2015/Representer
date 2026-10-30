@@ -40,3 +40,12 @@ export const CHAT_PORT = 'chat';
 /** `page` is sent when the page has no summary: its text becomes the chat's attachment */
 export interface ChatRequest { url: string; text: string; sid: string; label?: string; page?: { title: string; content: string } }
 export type ChatEvent = { delta: string } | { done: true; text?: string } | { error: string };
+
+/**
+ * Streaming overview over a long-lived port: the tab sends one SummaryRequest, the background answers with the model's
+ * raw JSON as `delta`s (read progressively by lib/partial-json.ts), then exactly one of done / cancelled / error.
+ * `done` carries the parsed, cached result, which is what the panel keeps. Disconnecting the port cancels the run.
+ */
+export const SUMMARY_PORT = 'summary';
+export interface SummaryRequest { url: string; title: string; content: string; force: boolean; anchors?: Anchors }
+export type SummaryEvent = { delta: string } | { done: true; summary: Summary; anchors?: Anchors } | { cancelled: true } | { error: string };

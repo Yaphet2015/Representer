@@ -15,11 +15,15 @@ export function createSummarizeRunner(cache: Cache) {
     async run(
       req: { url: string; title: string; content: string; anchors?: Anchors },
       generate: (signal: AbortSignal) => Promise<Summary>,
+      /** aborts this run only (e.g. its stream's port closed), never a newer run of the same page */
+      outer?: AbortSignal,
     ): Promise<SummarizeResult> {
       const { url, title, content } = req;
       inflight.get(url)?.abort(); // a newer run for the same page replaces the old one
       const ac = new AbortController();
       inflight.set(url, ac);
+      const stop = () => ac.abort();
+      if (outer?.aborted) ac.abort(); else outer?.addEventListener('abort', stop, { once: true });
       try {
         const summary = await raceAbort(generate(ac.signal), ac.signal);
         if (ac.signal.aborted) return { cancelled: true }; // never cache a cancelled run
@@ -32,6 +36,7 @@ export function createSummarizeRunner(cache: Cache) {
         if (ac.signal.aborted || isAbort(e)) return { cancelled: true };
         throw e;
       } finally {
+        outer?.removeEventListener('abort', stop);
         if (inflight.get(url) === ac) inflight.delete(url);
       }
     },
