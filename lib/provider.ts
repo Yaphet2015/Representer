@@ -1,5 +1,6 @@
 /** Picks the real (pi durable) provider, or the mock one in dev builds, so callers never branch on it. */
 import { runTurn } from './llm';
+import type { Usage } from '@earendil-works/pi-ai';
 import { OutputTruncated, MAX_OUTPUT_CEILING, maxOutputFor, isMaxTokensError, SAFE_MAX_OUTPUT } from './budget';
 import { OverviewIncomplete, runOverviewAgent, ToolsUnsupported, type OverviewStatus } from './overview-agent';
 import { AbortError } from './abort';
@@ -22,11 +23,13 @@ export interface SummarizeHooks {
   onPartial?: (s: Summary) => void;
   /** what the agent is doing besides thinking: reading the page, or repairing a rejected piece */
   onStatus?: (s: OverviewStatus) => void;
+  /** token usage of each model reply (for measurement) */
+  onUsage?: (u: Usage) => void;
 }
 
 export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
   // Mock mode is a dev-only tool: production builds ignore the stored flag and drop the mock code.
-  const dev = import.meta.env.DEV;
+  const dev = import.meta.env?.DEV;
   if (useMock(dev ? s : { ...s, mock: false })) {
     if (dev) return { summarize: (title, _url, content, signal, _onDelta, onThinking, more = {}) => mockOverviewAgent(title, lang, signal, content, onThinking, more), chat: (_c, _h, input, onDelta, signal) => mockStream(input, onDelta, signal, 30, lang) };
     const fail = () => Promise.reject(new Error(messages(lang).noApiKey));
@@ -38,7 +41,7 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         return await runOverviewAgent({
           instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal,
           onPartial: more.onPartial, onStatus: more.onStatus,
-        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs }) });
+        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage }) });
       } catch (e) {
         if (e instanceof AbortError || signal?.aborted) throw e;
         if (!(e instanceof ToolsUnsupported)) throw friendly(e, lang);

@@ -5,7 +5,7 @@
  * streams text deltas from the agent event stream.
  */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { createModels, createProvider, type Model } from '@earendil-works/pi-ai';
+import { createModels, createProvider, type Model, type Usage } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { createRegistry, Harness, type Extension, MemoryStorage, UserEntry, AssistantEntry, watchEvents } from '@earendil-works/pi-durable';
 import { AbortError } from './abort';
@@ -42,6 +42,8 @@ export interface TurnOptions {
   onStop?: (reason: string) => void;
   /** a tool call's arguments as they stream in (an object still being filled in), before the tool runs */
   onToolArgs?: (name: string, args: unknown) => void;
+  /** token usage of each model reply in this turn (a turn with tool calls has several) */
+  onUsage?: (u: Usage) => void;
 }
 
 /** Rebuilds streamed tool-call arguments from the event changes (start, string appends at a path, whole blocks). */
@@ -92,12 +94,13 @@ export async function runTurn(
       }, ctx);
     }
     let streamed = '';
-    const events = onDelta || onThinking || opts.onToolArgs ? await watchEvents(harness, root.id, ctx) : null;
+    const events = onDelta || onThinking || opts.onToolArgs || opts.onUsage ? await watchEvents(harness, root.id, ctx) : null;
     const toolArgs = opts.onToolArgs ? toolArgsTracker(opts.onToolArgs) : null;
     events?.start(async (batch: readonly any[]) => {
       const emit = (d: string) => { if (d && onDelta) { streamed += d; onDelta(d); } };
       const think = (d: string) => { if (d) onThinking?.(d); };
       for (const e of batch) {
+        if (e.type === 'message_end') for (const m of e.entry?.model ?? []) if (m.role === 'assistant' && m.usage) opts.onUsage?.(m.usage);
         // the assistant message_start can already carry the first chunk(s) of text
         if (e.type === 'message_start' && e.message?.role === 'assistant') {
           toolArgs?.reset();

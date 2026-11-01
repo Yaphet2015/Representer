@@ -16,7 +16,7 @@ export function serveSummaryPort(
   deps: {
     cache: ReturnType<typeof createCache>;
     runner: ReturnType<typeof createSummarizeRunner>;
-    summarize: (req: SummaryRequest, signal: AbortSignal, onDelta: (t: string) => void, onThinking: (t: string) => void, more: Required<SummarizeHooks>) => Promise<Summary>;
+    summarize: (req: SummaryRequest, signal: AbortSignal, onDelta: (t: string) => void, onThinking: (t: string) => void, more: Required<Pick<SummarizeHooks, 'onPartial' | 'onStatus'>>) => Promise<Summary>;
   },
 ) {
   const ac = new AbortController();
