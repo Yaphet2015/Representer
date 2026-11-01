@@ -5,6 +5,8 @@
  *   LLM_TEST_BASE_URL=… LLM_TEST_MODEL=… LLM_TEST_API_KEY=… \
  *   npx tsx scripts/bench-overview.ts --corpus /workspace/bench-corpus --out /workspace/bench-results/baseline --runs 2 --par 4
  *
+ * Add --resume to keep the runs already recorded in <out>.jsonl.
+ *
  * Corpus: <corpus>/manifest.json ([{id,title,url,chars,long}]) plus <corpus>/<id>.txt (extracted `[pN]` content,
  * see scripts/bench-corpus.ts). Writes <out>.csv, <out>.md and <out>.jsonl (raw summaries).
  *
@@ -16,7 +18,7 @@
  *    number among that section's anchor and bullet anchors). Weight = the block's text length.
  */
 import './node-polyfills';
-import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { providerFor } from '../lib/provider';
 import { MARKER_RE } from '../lib/locate';
@@ -71,9 +73,9 @@ async function one(p: Page, run: number): Promise<Row> {
   } catch (e) { err = String((e as Error)?.message ?? e).slice(0, 120); }
   const totalS = (performance.now() - t0) / 1000;
   const cov = s ? coverage(content, s) : { chunks: Math.ceil(content.length / CHUNK), chunkCov: 0, spread: 0, cited: 0 };
-  appendFileSync(`${out}.jsonl`, JSON.stringify({ id: p.id, run, err, summary: s }) + '\n');
-  const row: Row = { id: p.id, long: p.long, chars: content.length, run, ok: !!s && s.sections.length > 0, err, sections: s?.sections.length ?? 0,
+    const row: Row = { id: p.id, long: p.long, chars: content.length, run, ok: !!s && s.sections.length > 0, err, sections: s?.sections.length ?? 0,
     bullets: s?.sections.reduce((n, x) => n + x.bullets.length, 0) ?? 0, ttftS: ttft === null ? null : (ttft - t0) / 1000, totalS, ...u, ...cov };
+  appendFileSync(`${out}.jsonl`, JSON.stringify({ row, summary: s }) + '\n');
   console.log(JSON.stringify(row));
   return row;
 }
@@ -81,9 +83,11 @@ async function one(p: Page, run: number): Promise<Row> {
 const pct = (xs: number[], q: number) => { if (!xs.length) return NaN; const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.ceil(q * a.length) - 1)]!; };
 
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(`${out}.jsonl`, '');
-const jobs = pages.flatMap((p) => Array.from({ length: runs }, (_, r) => () => one(p, r + 1)));
-const rows: Row[] = [];
+// --resume keeps the runs already in <out>.jsonl (a long benchmark can be interrupted)
+const rows: Row[] = process.argv.includes('--resume') && existsSync(`${out}.jsonl`)
+  ? readFileSync(`${out}.jsonl`, 'utf8').split('\n').filter((l) => l.includes('"row"')).map((l) => JSON.parse(l).row) : (writeFileSync(`${out}.jsonl`, ''), []);
+const done = new Set(rows.map((r) => `${r.id}#${r.run}`));
+const jobs = pages.flatMap((p) => Array.from({ length: runs }, (_, r) => r + 1).filter((r) => !done.has(`${p.id}#${r}`)).map((r) => () => one(p, r)));
 await Promise.all(Array.from({ length: par }, async () => { for (let j; (j = jobs.shift()); ) rows.push(await j()); }));
 rows.sort((a, b) => +a.long - +b.long || a.id.localeCompare(b.id) || a.run - b.run);
 
