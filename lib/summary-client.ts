@@ -2,6 +2,7 @@
 import { SUMMARY_PORT, type SummaryEvent, type SummaryRequest } from './messages';
 import { createPartialReader } from './partial-json';
 import type { Summary } from './types';
+import type { OverviewStatus } from './overview-agent';
 
 type Final = Exclude<SummaryEvent, { delta: string } | { thinking: string } | { partial: Summary } | { status: unknown }>;
 interface Port {
@@ -15,7 +16,7 @@ interface Port {
  * Start a streaming summary. `onPartial` gets the readable overview so far (throttled); `done` settles with the final
  * event. A port that drops without a final event (the worker restarted) settles as an error, never hangs.
  */
-export function streamSummary(req: SummaryRequest, onPartial: (s: Summary) => void, connect: () => Port = () => chrome.runtime.connect({ name: SUMMARY_PORT }) as unknown as Port, onThinking?: (t: string) => void, onStatus?: (s: 'reading' | 'repairing' | null) => void) {
+export function streamSummary(req: SummaryRequest, onPartial: (s: Summary) => void, connect: () => Port = () => chrome.runtime.connect({ name: SUMMARY_PORT }) as unknown as Port, onThinking?: (t: string) => void, onStatus?: (s: OverviewStatus) => void) {
   const port = connect();
   const reader = createPartialReader(onPartial);
   let settle!: (e: Final) => void, settled = false;

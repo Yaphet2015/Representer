@@ -2,7 +2,8 @@
 import { runTurn } from './llm';
 import type { Usage } from '@earendil-works/pi-ai';
 import { OutputTruncated, MAX_OUTPUT_CEILING, maxOutputFor, isMaxTokensError, SAFE_MAX_OUTPUT } from './budget';
-import { OverviewIncomplete, runOverviewAgent, ToolsUnsupported, type OverviewStatus } from './overview-agent';
+import { OVERVIEW_INLINE_MAX, OverviewIncomplete, runOverviewAgent, ToolsUnsupported, type OverviewStatus } from './overview-agent';
+import { extractNotes, notesInput } from './chunked-overview';
 import { AbortError } from './abort';
 import { mockOverviewAgent, mockStream, useMock } from './mock';
 import { summarizeWithSteps } from './steps';
@@ -27,6 +28,9 @@ export interface SummarizeHooks {
   onUsage?: (u: Usage) => void;
 }
 
+/** output cap of one chunk-notes call (no reasoning: the notes alone) */
+const EXTRACT_MAX_OUTPUT = 8192;
+
 export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
   // Mock mode is a dev-only tool: production builds ignore the stored flag and drop the mock code.
   const dev = import.meta.env?.DEV;
@@ -38,10 +42,20 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
   return {
     summarize: async (title, url, content, signal, onDelta, onThinking, more = {}) => {
       try {
+        // a long page: its chunks are read in parallel first (reasoning off; only progress is shown), then the agent
+        // writes the overview from their notes
+        let input: string | undefined;
+        if (content.length > OVERVIEW_INLINE_MAX) {
+          const { notes } = await extractNotes({
+            title, content, replyLanguage: messages(lang).replyLanguage, signal, onProgress: (read, total) => more.onStatus?.({ read, total }),
+          }, { extract: (instructions, history, input, sig) => runTurn(s, instructions, history, input, undefined, sig, null, undefined, { reasoning: 'off', maxTokens: EXTRACT_MAX_OUTPUT, onUsage: more.onUsage }) });
+          input = notesInput(title, url, content, notes);
+          more.onStatus?.(null);
+        }
         return await runOverviewAgent({
-          instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal,
+          instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal, input,
           onPartial: more.onPartial, onStatus: more.onStatus,
-        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage }) });
+        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: 'low' }) });
       } catch (e) {
         if (e instanceof AbortError || signal?.aborted) throw e;
         if (!(e instanceof ToolsUnsupported)) throw friendly(e, lang);

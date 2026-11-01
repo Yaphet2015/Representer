@@ -17,7 +17,8 @@ import { MAX_CONTENT_CHARS } from './prompts';
 import { detectSteps, missingSteps } from './steps';
 import { ICON_TYPES, type Summary } from './types';
 
-export type OverviewStatus = 'reading' | 'repairing' | null;
+/** `read`/`total`: a long page's chunks read so far, before the overview is written (lib/chunked-overview.ts) */
+export type OverviewStatus = 'reading' | 'repairing' | { read: number; total: number } | null;
 export interface RawBullet { text: string; anchor: string }
 export interface RawSection { title: string; anchor: string; icon: string; bullets: RawBullet[] }
 export type ToolResult = { ok: true; message: string } | { ok: false; error: string };
@@ -290,6 +291,8 @@ export interface AgentOptions {
   onPartial?(s: Summary): void; onStatus?(s: OverviewStatus): void;
   /** limits for the whole run: model turns, tool calls and wall time */
   maxTurns?: number; maxToolCalls?: number; deadlineMs?: number;
+  /** the first message, when it is not the page itself (a long page's chunk notes) */
+  input?: string;
 }
 
 /** Run the loop. Returns the finished summary, or the best partial one when the limits run out first. */
@@ -297,7 +300,7 @@ export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promis
   const { maxTurns = 4, maxToolCalls = 40, deadlineMs = 150_000 } = o;
   if (o.signal?.aborted) throw new AbortError();
   const draft = createOverviewDraft(o.content);
-  const { input, withRead } = overviewInput(o.title, o.url, o.content);
+  const { input, withRead } = o.input ? { input: o.input, withRead: false } : overviewInput(o.title, o.url, o.content);
   let calls = 0, outputs = 0, budget = maxOutputFor(o.model), lastError: unknown = null;
   let run: AbortController | null = null;
   let outOfTime = false, outOfCalls = false;

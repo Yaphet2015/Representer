@@ -1,5 +1,5 @@
 /** The background side of SUMMARY_PORT, kept apart from chrome APIs so it can be tested with a fake port. */
-import type { createCache } from './cache';
+import { pageHash, type createCache } from './cache';
 import type { SummaryEvent, SummaryRequest } from './messages';
 import type { createSummarizeRunner } from './summarize-run';
 import type { Summary } from './types';
@@ -25,7 +25,7 @@ export function serveSummaryPort(
   const post = (e: SummaryEvent) => { if (closed) return; try { port.postMessage(e); } catch { /* port closed */ } };
   port.onMessage.addListener(async (req) => {
     try {
-      if (!req.force) { const c = await deps.cache.getSummary(req.url); if (c) return post({ done: true, summary: c.summary, anchors: c.anchors }); }
+      if (!req.force) { const c = await deps.cache.getSummary(req.url, pageHash(req.content)); if (c) return post({ done: true, summary: c.summary, anchors: c.anchors }); }
       const r = await deps.runner.run(req, (signal) => deps.summarize(req, signal, (delta) => { if (delta && !signal.aborted) post({ delta }); },
         (thinking) => { if (thinking && !signal.aborted) post({ thinking }); },
         { onPartial: (partial) => { if (!signal.aborted) post({ partial }); }, onStatus: (status) => { if (!signal.aborted) post({ status }); } }), ac.signal);

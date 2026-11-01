@@ -14,11 +14,19 @@ import type { ChatMessage, Settings } from './types';
 
 const PROVIDER = 'byok';
 
-export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model)) {
+/**
+ * How much the model may reason. Unset: the request carries no reasoning field (the server's default).
+ * 'low' asks for little reasoning, 'off' turns it off; pi-ai sends each in the provider's own form
+ * (OpenAI-style reasoning_effort, DeepSeek's thinking switch, OpenRouter's reasoning object...).
+ */
+export type Reasoning = 'off' | 'low';
+
+export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model), reasoning?: Reasoning) {
   const baseUrl = s.baseUrl.replace(/\/+$/, '');
   const model: Model<'openai-completions'> = {
     id: s.model, name: s.model, api: 'openai-completions', provider: PROVIDER, baseUrl,
-    reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    // a reasoning model with 'off' mapped to "none": only set when a call asks for a reasoning level
+    reasoning: !!reasoning, ...(reasoning ? { thinkingLevelMap: { off: 'none' } } : {}), input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000, maxTokens,
   } as Model<'openai-completions'>;
   const models = createModels();
@@ -44,6 +52,8 @@ export interface TurnOptions {
   onToolArgs?: (name: string, args: unknown) => void;
   /** token usage of each model reply in this turn (a turn with tool calls has several) */
   onUsage?: (u: Usage) => void;
+  /** reasoning level for this call; a server that rejects the field gets the call again without it */
+  reasoning?: Reasoning;
 }
 
 /** Rebuilds streamed tool-call arguments from the event changes (start, string appends at a path, whole blocks). */
@@ -74,13 +84,32 @@ export async function runTurn(
   onThinking?: (t: string) => void,
   opts: TurnOptions = {},
 ): Promise<string> {
+  if (!opts.reasoning) return turnOnce(s, instructions, history, input, onDelta, signal, tools, onThinking, opts);
+  let sent = false;
+  const watch = onDelta ? (d: string) => { sent = true; onDelta(d); } : undefined;
+  try {
+    return await turnOnce(s, instructions, history, input, watch, signal, tools, onThinking, opts);
+  } catch (e) {
+    if (sent || signal?.aborted || !isReasoningRejected(e)) throw e;
+    return turnOnce(s, instructions, history, input, onDelta, signal, tools, onThinking, { ...opts, reasoning: undefined });
+  }
+}
+
+/** A 400 about the reasoning field itself (a model or server without reasoning levels). */
+export const isReasoningRejected = (e: unknown) => /reasoning|thinking/i.test(String((e as any)?.message ?? e)) && /400|unsupported|not support|invalid|unrecognized|unknown/i.test(String((e as any)?.message ?? e));
+
+async function turnOnce(
+  s: Settings, instructions: string, history: ChatMessage[], input: string,
+  onDelta: ((t: string) => void) | undefined, signal: AbortSignal | undefined, tools: Extension | null | undefined,
+  onThinking: ((t: string) => void) | undefined, opts: TurnOptions,
+): Promise<string> {
   if (signal?.aborted) throw new AbortError();
   const ctx = BACKGROUND_CONTEXT;
   const registry = createRegistry();
   if (tools) registry.install(tools);
-  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
+  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens, opts.reasoning), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
   try {
-    const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions } } as any);
+    const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions, ...(opts.reasoning ? { thinkingLevel: opts.reasoning } : {}) } } as any);
     if (history.length) {
       await root.commit(async (tx: any) => {
         for (const m of history) {
