@@ -1,3 +1,4 @@
+import type { OverviewStatus } from './overview-agent';
 import type { Lang } from './i18n';
 import { mockText } from './mock-text';
 import { applyMarks } from './parse';
@@ -102,11 +103,14 @@ export async function mockStream(question: string, onDelta: (t: string) => void,
  * Dev-only: the overview agent's tool flow without a key. Thinks, (reads), submits the overview and then one section
  * at a time, with one rejected-and-repaired piece on the way; resolves to exactly buildMockSummary's result.
  */
-export async function mockOverviewAgent(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onThinking?: (t: string) => void, hooks: { onPartial?: (s: Summary) => void; onStatus?: (s: 'reading' | 'repairing' | null) => void } = {}, stepMs = 25): Promise<Summary> {
+export async function mockOverviewAgent(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onThinking?: (t: string) => void, hooks: { onPartial?: (s: Summary) => void; onStatus?: (s: OverviewStatus | null) => void } = {}, stepMs = 25): Promise<Summary> {
   const summary = buildMockSummary(title, lang, content);
   const thought = mockText(lang).mockThinking(title.trim() || mockText(lang).mockPage);
   for (let i = 0; i < thought.length; i += 3) { await sleep(stepMs * 2, signal); onThinking?.(thought.slice(i, i + 3)); }
-  if (content.length > 60000) { hooks.onStatus?.('reading'); await sleep(stepMs * 20, signal); }
+  if (content.length > 60000) { // long page: chunks read in parallel, progress only
+    const total = Math.min(12, Math.ceil(content.length / 12000));
+    for (let read = 0; read <= total; read++) { hooks.onStatus?.({ read, total }); await sleep(stepMs * 8, signal); }
+  }
   hooks.onStatus?.(null);
   const sections = summary.sections;
   for (let n = 0; n <= sections.length; n++) {
