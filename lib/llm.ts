@@ -9,16 +9,17 @@ import { createModels, createProvider, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { createRegistry, Harness, type Extension, MemoryStorage, UserEntry, AssistantEntry, watchEvents } from '@earendil-works/pi-durable';
 import { AbortError } from './abort';
+import { maxOutputFor, OutputTruncated } from './budget';
 import type { ChatMessage, Settings } from './types';
 
 const PROVIDER = 'byok';
 
-export function buildModels(s: Settings) {
+export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model)) {
   const baseUrl = s.baseUrl.replace(/\/+$/, '');
   const model: Model<'openai-completions'> = {
     id: s.model, name: s.model, api: 'openai-completions', provider: PROVIDER, baseUrl,
     reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000, maxTokens: 8192,
+    contextWindow: 128000, maxTokens,
   } as Model<'openai-completions'>;
   const models = createModels();
   models.setProvider(createProvider({
@@ -32,18 +33,50 @@ export function buildModels(s: Settings) {
 
 const now = () => Date.now();
 
+export interface TurnOptions {
+  /** output-token cap for this call (reasoning included); default: the model's, see maxOutputFor */
+  maxTokens?: number;
+  /** throw OutputTruncated instead of returning text the model was cut off in */
+  failOnLength?: boolean;
+  /** the final message's stop reason ('stop', 'length', 'toolUse', ...) */
+  onStop?: (reason: string) => void;
+  /** a tool call's arguments as they stream in (an object still being filled in), before the tool runs */
+  onToolArgs?: (name: string, args: unknown) => void;
+}
+
+/** Rebuilds streamed tool-call arguments from the event changes (start, string appends at a path, whole blocks). */
+function toolArgsTracker(emit: (name: string, args: unknown) => void) {
+  const calls = new Map<number, { name: string; args: any }>();
+  const set = (i: number, block: any) => { if (block?.type === 'toolCall') { calls.set(i, { name: block.name, args: structuredClone(block.arguments ?? {}) }); emit(block.name, calls.get(i)!.args); } };
+  return {
+    start: set, block: set,
+    delta(i: number, path: (string | number)[], delta: string) {
+      const c = calls.get(i);
+      if (!c || !path.length) return;
+      let o = c.args;
+      for (const k of path.slice(0, -1)) { if (o == null || typeof o !== 'object') return; o = o[k]; }
+      const last = path[path.length - 1]!;
+      if (o == null || typeof o !== 'object') return;
+      o[last] = (typeof o[last] === 'string' ? o[last] : '') + delta;
+      emit(c.name, c.args);
+    },
+    reset() { calls.clear(); },
+  };
+}
+
 /** Run one turn: instructions + prior history + input. Calls onDelta for each streamed text chunk; resolves with the full answer. */
 export async function runTurn(
   s: Settings, instructions: string, history: ChatMessage[], input: string,
   onDelta?: (t: string) => void, signal?: AbortSignal, tools?: Extension | null,
   /** the model's reasoning as it streams (OpenAI-compatible `reasoning` / `reasoning_content`); never part of the answer */
   onThinking?: (t: string) => void,
+  opts: TurnOptions = {},
 ): Promise<string> {
   if (signal?.aborted) throw new AbortError();
   const ctx = BACKGROUND_CONTEXT;
   const registry = createRegistry();
   if (tools) registry.install(tools);
-  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
+  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
   try {
     const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions } } as any);
     if (history.length) {
@@ -59,14 +92,17 @@ export async function runTurn(
       }, ctx);
     }
     let streamed = '';
-    const events = onDelta || onThinking ? await watchEvents(harness, root.id, ctx) : null;
+    const events = onDelta || onThinking || opts.onToolArgs ? await watchEvents(harness, root.id, ctx) : null;
+    const toolArgs = opts.onToolArgs ? toolArgsTracker(opts.onToolArgs) : null;
     events?.start(async (batch: readonly any[]) => {
       const emit = (d: string) => { if (d && onDelta) { streamed += d; onDelta(d); } };
       const think = (d: string) => { if (d) onThinking?.(d); };
       for (const e of batch) {
         // the assistant message_start can already carry the first chunk(s) of text
-        if (e.type === 'message_start' && e.message?.role === 'assistant')
-          for (const b of e.message.content ?? []) { if (b.type === 'text') emit(b.text); else if (b.type === 'thinking') think(b.thinking); }
+        if (e.type === 'message_start' && e.message?.role === 'assistant') {
+          toolArgs?.reset();
+          (e.message.content ?? []).forEach((b: any, i: number) => { if (b.type === 'text') emit(b.text); else if (b.type === 'thinking') think(b.thinking); else toolArgs?.start(i, b); });
+        }
         if (e.type === 'message_update')
           for (const c of e.changes) {
             if (c.type === 'text_delta') emit(c.delta);
@@ -74,6 +110,9 @@ export async function runTurn(
             else if (c.type === 'text_start') emit(c.block?.text ?? '');
             else if (c.type === 'thinking_delta') think(c.delta);
             else if (c.type === 'thinking_start') think(c.block?.thinking ?? '');
+            else if (c.type === 'toolcall_start' || c.type === 'block') toolArgs?.block(c.contentIndex, c.block);
+            else if (c.type === 'toolcall_delta') toolArgs?.delta(c.contentIndex, c.path ?? [], c.delta ?? '');
+            else if (c.type === 'message') (c.message?.content ?? []).forEach((b: any, i: number) => toolArgs?.block(i, b));
           }
       }
     });
@@ -89,6 +128,8 @@ export async function runTurn(
     const msg = entry?.model?.[0] ?? settled.answer?.model?.[0];
     const text = (msg?.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
     if (msg?.stopReason === 'error') throw new Error(msg.errorMessage || 'Model error');
+    opts.onStop?.(msg?.stopReason ?? 'stop');
+    if (msg?.stopReason === 'length' && opts.failOnLength) throw new OutputTruncated(text || streamed, opts.maxTokens ?? maxOutputFor(s.model));
     // flush deltas the event stream may not have delivered yet
     if (onDelta && text.length > streamed.length && text.startsWith(streamed)) onDelta(text.slice(streamed.length));
     return text || streamed;

@@ -62,9 +62,9 @@ export default defineBackground(() => {
     if (port.name !== SUMMARY_PORT) return;
     serveSummaryPort(port, {
       cache, runner: summarizer,
-      summarize: async ({ url, title, content }, signal, onDelta, onThinking) => {
+      summarize: async ({ url, title, content }, signal, onDelta, onThinking, more) => {
         const { s, lang } = await ctx();
-        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking);
+        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, more);
       },
     });
   });

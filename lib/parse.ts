@@ -65,8 +65,12 @@ export function parseSummary(text: string, content?: string): Summary {
   if (fence) s = fence[1]!.trim();
   const start = s.indexOf('{'), end = s.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('No JSON object in model output');
-  const raw = JSON.parse(s.slice(start, end + 1));
-  if (typeof raw.overview !== 'string' || !raw.overview.trim()) throw new Error('Missing "overview"');
+  return normalizeSummary(JSON.parse(s.slice(start, end + 1)), content);
+}
+
+/** Turn the raw summary object (parsed JSON, or the one the overview tools build) into the stored Summary. */
+export function normalizeSummary(raw: any, content?: string): Summary {
+  if (!raw || typeof raw.overview !== 'string' || !raw.overview.trim()) throw new Error('Missing "overview"');
   const sections = (Array.isArray(raw.sections) ? raw.sections : [])
     .filter((x: any) => x && typeof x.title === 'string')
     .map((x: any) => {

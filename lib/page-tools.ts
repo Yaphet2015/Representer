@@ -9,9 +9,12 @@ const text = (t: string) => ({ output: [{ type: 'text' as const, text: t }] });
 export function pageTools(content: string) {
   const page = content.slice(0, MAX_PAGE_CHARS);
   if (isInline(page)) return null;
-  return defineExtension({
-    name: 'page',
-    tools: [
+  return defineExtension({ name: 'page', tools: readTools(page) });
+}
+
+/** read_page + search_page over an already-capped page; the overview agent adds them to its own tools. */
+export function readTools(page: string) {
+  return [
       defineTool({
         name: 'read_page',
         description: 'Read part of the attached page.md: by block ids ("p12" or "p12-p20") or by character offset/limit.',
@@ -30,6 +33,5 @@ export function pageTools(content: string) {
         replay: 'safe',
         execute: async (args) => text(searchPage(page, args.query)),
       }),
-    ],
-  });
+  ];
 }

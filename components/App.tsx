@@ -57,6 +57,7 @@ export function App() {
   const [partial, setPartial] = useState<Summary | null>(null);
   /** the reasoning sentence shown in the status row before any of the answer arrives ('' = the plain status text) */
   const [thought, setThought] = useState('');
+  const [status, setStatus] = useState<'reading' | 'repairing' | null>(null);
   /** when the running summary started: the status timer keeps counting when the row switches to the streaming overview */
   const [startedAt, setStartedAt] = useState(0);
   /** the running stream; stopping it closes its port, which cancels the model call */
@@ -97,7 +98,7 @@ export function App() {
     const t0 = Date.now();
     setCacheInfo(null);
     stopStream();
-    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStartedAt(Date.now());
+    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStatus(null); setStartedAt(Date.now());
     if (force) { setSummary(null); setTab('overview'); }
     try {
       if (!force) {
@@ -109,7 +110,7 @@ export function App() {
       const page = getPage();
       setTitle(page.title);
       const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
-      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d));
+      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d), (st) => { if (!stale()) setStatus(st); });
       stream.current = st;
       const r = await st.done.finally(() => ticker.stop());
       if (stream.current === st) stream.current = null;
@@ -186,7 +187,7 @@ export function App() {
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
                 {loading && partial && (
-                  <Overview streaming startedAt={startedAt} summary={partial} pageTitle={title} host={pageHost()}>
+                  <Overview streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
                     <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
                   </Overview>
                 )}
@@ -194,7 +195,7 @@ export function App() {
                   <div className="flex h-full flex-col overflow-hidden">
                     {/* first row while summarizing: status, timer, cancel */}
                     <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
-                      <LoadingState label={thought ? <ThoughtLine line={thought} /> : t.summarizingLabel} tone="bg-accent" since={startedAt} />
+                      <LoadingState label={status === 'repairing' ? t.repairing : thought ? <ThoughtLine line={thought} /> : status === 'reading' ? t.readingPage : t.summarizingLabel} tone="bg-accent" since={startedAt} />
                       <Button variant="secondary" size="xs" data-cancel onClick={cancel} className="shrink-0">{t.cancelSummary}</Button>
                     </div>
                     <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>

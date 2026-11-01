@@ -49,4 +49,4 @@ export type ChatEvent = { delta: string } | { done: true; text?: string } | { er
 export const SUMMARY_PORT = 'summary';
 export interface SummaryRequest { url: string; title: string; content: string; force: boolean; anchors?: Anchors }
 /** `thinking`: the model's reasoning as it streams, for the status row only (never part of the summary or the cache) */
-export type SummaryEvent = { delta: string } | { thinking: string } | { done: true; summary: Summary; anchors?: Anchors } | { cancelled: true } | { error: string };
+export type SummaryEvent = { delta: string } | { thinking: string } | { partial: Summary } | { status: 'reading' | 'repairing' | null } | { done: true; summary: Summary; anchors?: Anchors } | { cancelled: true } | { error: string };

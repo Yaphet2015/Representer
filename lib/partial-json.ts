@@ -70,7 +70,12 @@ export function tidyPartialMarks(s: string): string {
  * bullets written so far. Anchors and the quote wait for the final, validated result. null until there is any text.
  */
 export function partialSummary(text: string): Summary | null {
-  const raw = parsePartialJson(text) as any;
+  return partialFromObject(parsePartialJson(text));
+}
+
+/** The same lenient reading for an object that is still being filled in (e.g. streamed tool-call arguments). */
+export function partialFromObject(value: unknown): Summary | null {
+  const raw = value as any;
   if (!raw || typeof raw !== 'object') return null;
   const overview = typeof raw.overview === 'string' ? tidyPartialMarks(raw.overview.trimStart()) : '';
   const sections: Section[] = (Array.isArray(raw.sections) ? raw.sections : [])

@@ -97,3 +97,22 @@ export async function mockStream(question: string, onDelta: (t: string) => void,
   for (const tok of text.match(/[\u3000-\u9fff\uff00-\uffef]{1,2}|[^\s\u3000-\u9fff\uff00-\uffef]+\s*|\s+/g) ?? []) { await sleep(tokenMs, signal); onDelta(tok); }
   return text;
 }
+
+/**
+ * Dev-only: the overview agent's tool flow without a key. Thinks, (reads), submits the overview and then one section
+ * at a time, with one rejected-and-repaired piece on the way; resolves to exactly buildMockSummary's result.
+ */
+export async function mockOverviewAgent(title: string, lang: Lang = 'zh-CN', signal?: AbortSignal, content = '', onThinking?: (t: string) => void, hooks: { onPartial?: (s: Summary) => void; onStatus?: (s: 'reading' | 'repairing' | null) => void } = {}, stepMs = 25): Promise<Summary> {
+  const summary = buildMockSummary(title, lang, content);
+  const thought = mockText(lang).mockThinking(title.trim() || mockText(lang).mockPage);
+  for (let i = 0; i < thought.length; i += 3) { await sleep(stepMs * 2, signal); onThinking?.(thought.slice(i, i + 3)); }
+  if (content.length > 60000) { hooks.onStatus?.('reading'); await sleep(stepMs * 20, signal); }
+  hooks.onStatus?.(null);
+  const sections = summary.sections;
+  for (let n = 0; n <= sections.length; n++) {
+    await sleep(stepMs * 24, signal);
+    if (n === 2) { hooks.onStatus?.('repairing'); await sleep(stepMs * 32, signal); hooks.onStatus?.(null); } // the tool rejected a section once
+    hooks.onPartial?.({ ...summary, sections: sections.slice(0, n), ...(n === sections.length && summary.quote ? {} : { quote: undefined }) });
+  }
+  return summary;
+}
