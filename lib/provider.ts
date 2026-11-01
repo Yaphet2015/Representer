@@ -46,16 +46,16 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         // writes the overview from their notes
         let input: string | undefined;
         if (content.length > OVERVIEW_INLINE_MAX) {
-          const { notes } = await extractNotes({
+          const { notes, chunks } = await extractNotes({
             title, content, replyLanguage: messages(lang).replyLanguage, signal, onProgress: (read, total) => more.onStatus?.({ read, total }),
           }, { extract: (instructions, history, input, sig) => runTurn(s, instructions, history, input, undefined, sig, null, undefined, { reasoning: 'off', maxTokens: EXTRACT_MAX_OUTPUT, onUsage: more.onUsage }) });
-          input = notesInput(title, url, content, notes);
+          input = notesInput(title, url, content, notes, chunks);
           more.onStatus?.(null);
         }
         return await runOverviewAgent({
           instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal, input,
           onPartial: more.onPartial, onStatus: more.onStatus,
-        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: 'low' }) });
+        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: input ? 'off' : 'low' }) });
       } catch (e) {
         if (e instanceof AbortError || signal?.aborted) throw e;
         if (!(e instanceof ToolsUnsupported)) throw friendly(e, lang);

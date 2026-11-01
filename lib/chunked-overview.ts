@@ -15,23 +15,46 @@ export const EXTRACT_CONCURRENCY = 6;
 export const MAX_EXTRACT_CALLS = 12;
 /** the longest page read this way (characters) */
 export const CHUNKED_MAX_CHARS = 800_000;
-const REPAIRS = 2, NOTE_MAX = 240, QUOTE_MAX = 220;
+const REPAIRS = 2, NOTE_MAX = 200, QUOTE_MAX = 220;
 
-export interface Chunk { index: number; ids: string[]; text: string; chars: number }
+/** `offsets[i]`: where block ids[i] starts, in characters from the start of the page's blocks */
+export interface Chunk { index: number; ids: string[]; text: string; chars: number; offsets: number[] }
 export interface NotePoint { anchor: string; text: string }
 export interface ChunkNote { chunk: number; range: string; points: NotePoint[]; quote?: NotePoint; fallback?: boolean }
 
-/** Consecutive blocks, ~`size` characters per chunk; never splits a block (one longer than `size` is a chunk alone). */
+/**
+ * Consecutive blocks in chunks of about `size` characters: the page is cut into ceil(length / size) chunks of equal
+ * length, each cut at the block boundary nearest its ideal position (so chunk k is about the k-th `size` characters).
+ * A block is never split; one longer than a chunk stands alone.
+ */
 export function chunkContent(content: string, size = CHUNK_CHARS): Chunk[] {
-  const chunks: Chunk[] = [];
-  let ids: string[] = [], parts: string[] = [], chars = 0;
-  const flush = () => { if (ids.length) chunks.push({ index: chunks.length, ids, text: parts.join('\n\n'), chars }); ids = []; parts = []; chars = 0; };
-  for (const [id, t] of blockTexts(content.slice(0, CHUNKED_MAX_CHARS))) {
-    const piece = `[${id}] ${t.trim()}`;
-    if (chars && chars + piece.length > size) flush();
-    ids.push(id); parts.push(piece); chars += piece.length;
+  const map = blockTexts(content.slice(0, CHUNKED_MAX_CHARS));
+  const ids = [...map.keys()];
+  const blocks = [...map].map(([id, t]) => `[${id}] ${t.trim()}`);
+  // cut by where blocks sit in the page text itself (markers included), so chunk k covers about the k-th equal slice of the page
+  const text = content.slice(0, CHUNKED_MAX_CHARS);
+  const at = new Map<string, number>();
+  for (const m of text.matchAll(MARKER_RE)) if (!at.has(`p${m[1]}`)) at.set(`p${m[1]}`, m.index!);
+  const starts = ids.map((id) => at.get(id) ?? 0);
+  const total = text.length;
+  const ends = starts.map((_, i) => starts[i + 1] ?? total);
+  const n = Math.max(1, Math.min(blocks.length, Math.ceil(total / size)));
+  // cut k (1..n-1) goes after the block whose end is nearest k*size characters in, always after the previous cut
+  const cuts: number[] = [];
+  for (let k = 1, i = 0; k < n; k++) {
+    const target = k * size;
+    i = Math.max(i, (cuts.at(-1) ?? -1) + 1);
+    while (i < blocks.length - 2 && Math.abs(ends[i + 1]! - target) <= Math.abs(ends[i]! - target)) i++;
+    if (i >= blocks.length - 1) break;
+    cuts.push(i);
   }
-  flush();
+  const chunks: Chunk[] = [];
+  let start = 0;
+  for (const end of [...cuts, blocks.length - 1]) {
+    const part = blocks.slice(start, end + 1);
+    if (part.length) chunks.push({ index: chunks.length, ids: ids.slice(start, end + 1), text: part.join('\n\n'), chars: part.reduce((m, b) => m + b.length, 0), offsets: starts.slice(start, end + 1) });
+    start = end + 1;
+  }
   return chunks;
 }
 
@@ -44,8 +67,8 @@ export function batchChunks(chunks: Chunk[], maxCalls = MAX_EXTRACT_CALLS): Chun
 }
 
 const rangeOf = (c: Chunk) => `${c.ids[0]}-${c.ids.at(-1)}`;
-/** points asked for per chunk: about one per 2,500 characters, 2-6 */
-export const pointsFor = (c: Chunk) => Math.max(2, Math.min(6, Math.round(c.chars / 2500)));
+/** points asked for per chunk: about one per 3,500 characters, 2-4 */
+export const pointsFor = (c: Chunk) => Math.max(2, Math.min(4, Math.round(c.chars / 3500)));
 
 export function extractInstructions(replyLanguage: string): string {
   return `You read one part of a long web page and note its key points, so that an overview of the whole page can be written from the notes alone.
@@ -175,12 +198,41 @@ export async function extractNotes(o: { title: string; content: string; replyLan
   } finally { o.signal?.removeEventListener('abort', stop); }
 }
 
-/** The aggregation agent's first message: the notes of every part, not the page. */
-export function notesInput(title: string, url: string, content: string, notes: ChunkNote[]): string {
+/** Consecutive parts per section, so that one bullet per part (or per few parts) fits the summary's limits. */
+export function sectionPlan(total: number): { span: number; groups: [number, number][] } {
+  const span = Math.max(1, Math.ceil(total / 48)); // parts per bullet: 8 sections x 6 bullets
+  const sections = Math.min(8, Math.max(Math.min(4, total), Math.ceil(total / span / 5)));
+  const groups: [number, number][] = [];
+  for (let k = 0; k < sections; k++) {
+    const a = Math.round((k * total) / sections), b = Math.round(((k + 1) * total) / sections) - 1;
+    if (b >= a) groups.push([a, b]);
+  }
+  return { span, groups };
+}
+
+/** The aggregation agent's first message: the notes of every part (grouped into the planned sections), not the page. */
+/** A part's lead note: the one whose block is nearest the middle of the part (in characters), so the bullet built on it points well inside the part. */
+export function leadOf(n: ChunkNote, chunk?: Chunk): NotePoint {
+  if (!chunk) return n.points[Math.floor((n.points.length - 1) / 2)]!;
+  const mid = (chunk.offsets[0]! + chunk.offsets.at(-1)!) / 2;
+  const at = (p: NotePoint) => { const i = chunk.ids.indexOf(p.anchor); return i < 0 ? Infinity : Math.abs(chunk.offsets[i]! - mid); };
+  return n.points.reduce((a, b) => (at(b) < at(a) ? b : a), n.points[0]!);
+}
+
+export function notesInput(title: string, url: string, content: string, notes: ChunkNote[], chunks?: Chunk[]): string {
   const total = notes.length;
-  const body = notes.map((n) => `<part ${n.chunk + 1} of ${total}: ${n.range}${n.fallback ? ' (not read: block openings only)' : ''}>\n${n.points.map((p) => `- ${p.anchor}: ${p.text}`).join('\n')}${n.quote ? `\nquote candidate (${n.quote.anchor}, verbatim): ${n.quote.text}` : ''}\n</part ${n.chunk + 1}>`).join('\n');
-  return `Title: ${title}\nURL: ${url}\n\nThe page is ${content.length} characters, too long to include. It was read in ${total} parts of about ${CHUNK_CHARS} characters; below are the notes of every part, with the page's block ids.
-Write the overview from these notes. Cover the whole page: every part must be cited by at least one anchor (a section anchor or a bullet anchor); use 4-8 sections and up to 6 bullets per section so that all ${total} parts are cited. Anchors are the block ids in the notes. A quote, if any, must be one of the verbatim quote candidates with its id.
+  const { span, groups } = sectionPlan(total);
+  const lead = (n: ChunkNote) => leadOf(n, chunks?.[n.chunk]);
+  const part = (n: ChunkNote) => {
+    const l = n.points.length ? lead(n) : null;
+    return `<part ${n.chunk + 1}: ${n.range}${n.fallback ? ' (not read: block openings only)' : ''}>\n${l ? `★ ${l.anchor}: ${l.text}\n` : ''}${n.points.filter((p) => p !== l).map((p) => `- ${p.anchor}: ${p.text}`).join('\n')}${n.quote ? `\nquote candidate (${n.quote.anchor}, verbatim): ${n.quote.text}` : ''}`;
+  };
+  const body = groups.map(([a, b], k) => `=== Section ${k + 1}: parts ${a + 1}-${b + 1}; bullet anchors: ${notes.slice(a, b + 1).filter((n, i) => i % span === 0 && n.points.length).map((n) => lead(n).anchor).join(', ')} ===\n${notes.slice(a, b + 1).map(part).join('\n')}`).join('\n\n');
+  return `Title: ${title}\nURL: ${url}\n\nThe page is ${content.length} characters, too long to include. It was read in ${total} parts of about ${CHUNK_CHARS} characters; below are the notes of every part, with the page's block ids, already grouped into ${groups.length} sections in page order.
+Write the overview from these notes, covering the whole page:
+- Write exactly these ${groups.length} sections, in this order (give each a title from its content; its anchor is the ★ id of its first part).
+- A section's bullets are the ★ lead notes of its parts${span > 1 ? ` (one bullet per ${span} consecutive parts: the ★ of the first of them)` : ', one bullet per part'}, in order, each with its ★ anchor. Rewrite a lead into a clear point and add details from the other notes of the same part; do not move a part's content into another bullet. The number of bullets in a section equals its number of ${span > 1 ? 'part groups' : 'parts'}.
+- Anchors are the block ids in the notes. A quote, if any, must be one of the verbatim quote candidates with its id.
 
 ${body}`;
 }

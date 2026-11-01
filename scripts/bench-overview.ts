@@ -56,17 +56,18 @@ export function coverage(content: string, s: Summary) {
   return { chunks, chunkCov: hit.size / chunks, spread: tot ? cov / tot : 0, cited: ids.size };
 }
 
-interface Row { id: string; long: boolean; chars: number; run: number; ok: boolean; err: string; sections: number; bullets: number; ttftS: number | null; totalS: number;
+interface Row { id: string; long: boolean; chars: number; run: number; ok: boolean; err: string; sections: number; bullets: number; ttftS: number | null; readS: number | null; totalS: number;
   inTok: number; cacheTok: number; outTok: number; reasonTok: number; calls: number; chunks: number; chunkCov: number; spread: number; cited: number }
 
 async function one(p: Page, run: number): Promise<Row> {
   const content = readFileSync(`${corpus}/${p.id}.txt`, 'utf8');
   const t0 = performance.now();
-  let ttft: number | null = null;
+  let ttft: number | null = null, readAt: number | null = null;
   const u = { inTok: 0, cacheTok: 0, outTok: 0, reasonTok: 0, calls: 0 };
   let s: Summary | null = null, err = '';
   try {
     s = await provider.summarize(p.title, p.url, content, undefined, () => { ttft ??= performance.now(); }, undefined, {
+      onStatus: (st) => { if (st && typeof st === 'object' && st.read === st.total) readAt ??= performance.now(); },
       onPartial: (x) => { if (x.sections.length) ttft ??= performance.now(); },
       onUsage: (x) => { u.inTok += x.input; u.cacheTok += x.cacheRead; u.outTok += x.output; u.reasonTok += x.reasoning ?? 0; u.calls++; },
     });
@@ -74,7 +75,7 @@ async function one(p: Page, run: number): Promise<Row> {
   const totalS = (performance.now() - t0) / 1000;
   const cov = s ? coverage(content, s) : { chunks: Math.ceil(content.length / CHUNK), chunkCov: 0, spread: 0, cited: 0 };
     const row: Row = { id: p.id, long: p.long, chars: content.length, run, ok: !!s && s.sections.length > 0, err, sections: s?.sections.length ?? 0,
-    bullets: s?.sections.reduce((n, x) => n + x.bullets.length, 0) ?? 0, ttftS: ttft === null ? null : (ttft - t0) / 1000, totalS, ...u, ...cov };
+    bullets: s?.sections.reduce((n, x) => n + x.bullets.length, 0) ?? 0, ttftS: ttft === null ? null : (ttft - t0) / 1000, readS: readAt === null ? null : (readAt - t0) / 1000, totalS, ...u, ...cov };
   appendFileSync(`${out}.jsonl`, JSON.stringify({ row, summary: s }) + '\n');
   console.log(JSON.stringify(row));
   return row;
@@ -96,7 +97,7 @@ writeFileSync(`${out}.csv`, [cols.join(','), ...rows.map((r) => cols.map((c) => 
 
 const f = (n: number, d = 1) => (Number.isFinite(n) ? n.toFixed(d) : '–');
 const metrics: [string, (r: Row) => number | null, number][] = [
-  ['TTFT s', (r) => r.ttftS, 1], ['total s', (r) => r.totalS, 1], ['input tok', (r) => r.inTok + r.cacheTok, 0], ['output tok', (r) => r.outTok, 0],
+  ['TTFT s', (r) => r.ttftS, 1], ['chunks read s', (r) => r.readS, 1], ['total s', (r) => r.totalS, 1], ['input tok', (r) => r.inTok + r.cacheTok, 0], ['output tok', (r) => r.outTok, 0],
   ['reasoning tok', (r) => r.reasonTok, 0], ['model calls', (r) => r.calls, 0], ['sections', (r) => r.sections, 0], ['chunk coverage %', (r) => r.chunkCov * 100, 0], ['block spread %', (r) => r.spread * 100, 0],
 ];
 const groups: [string, Row[]][] = [['short (≤60k)', rows.filter((r) => !r.long)], ['long (>60k)', rows.filter((r) => r.long)], ['all', rows]];
