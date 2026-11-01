@@ -50,7 +50,7 @@ describe('extractNotes', () => {
         live++; peak = Math.max(peak, live);
         await new Promise((r) => setTimeout(r, 5));
         live--;
-        const parts = [...input.matchAll(/<part (\d+)>/g)].map((m) => +m[1]! - 1);
+        const parts = [...String(history[0]?.content ?? input).matchAll(/<part (\d+)>/g)].map((m) => +m[1]! - 1);
         const key = parts.join(',');
         seen.set(key, (seen.get(key) ?? 0) + 1);
         if (!history.length && parts[0] === 0) return '{"parts":[{"part":1,"points":[{"anchor":"p9999","text":"bad"}]}]}';
