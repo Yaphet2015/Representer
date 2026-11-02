@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from './i18n';
+import { errorKind } from '@/lib/autosave';
 import { Icon, Ic, inputCls } from './options/ui';
 
 /** Searchable combobox: filter the fetched list, or type any custom model name. */
@@ -51,7 +52,7 @@ export function ModelCombobox({ value, onChange, models, loading, error, onRefre
       </div>
       {(!canFetch || error) && (
         <p className="mt-1.5 text-[12px] text-ink-3" data-model-status>
-          {!canFetch ? t.modelsNeedConfig : <span className="text-red">{t.modelsFailed(error)}</span>}
+          {!canFetch ? t.modelsNeedConfig : <span className="text-red" title={error}>{t.modelsFailed(t.errKind[errorKind(error)])}</span>}
         </p>
       )}
       {open && (models.length > 0 || loading) && (

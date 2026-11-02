@@ -84,3 +84,41 @@ describe('resolveTheme', () => {
     expect(resolveTheme('system', true)).toBe('dark'); expect(resolveTheme(undefined, false)).toBe('light');
   });
 });
+
+import { readFileSync } from 'node:fs';
+import { errorKind } from '../lib/autosave';
+import { messages } from '../lib/i18n';
+
+describe('errorKind', () => {
+  it('classifies connection errors and every kind has zh + en copy', () => {
+    const cases: [string, string][] = [
+      ['401: {"code":"invalid_api_key"}', 'auth'], ['403 Forbidden', 'auth'],
+      ['404 status code (no body)', 'url'], ['getaddrinfo ENOTFOUND x.invalid', 'url'],
+      ['model_not_found', 'model'], ['TypeError: Failed to fetch', 'network'], ['connect ECONNREFUSED 127.0.0.1', 'network'],
+      ['Request timed out', 'timeout'], ['500 Internal Server Error', 'generic'],
+    ];
+    for (const [e, k] of cases) expect(errorKind(e), e).toBe(k);
+    for (const lang of ['zh-CN', 'en'] as const) for (const [, k] of cases) expect(messages(lang).errKind[k as 'auth']).toBeTruthy();
+  });
+});
+
+describe('theme-boot.js', () => {
+  const run = (stored: string | null, systemDark: boolean) => {
+    const attrs: Record<string, string> = {}; const classes = new Set<string>();
+    const el = { setAttribute: (k: string, v: string) => { attrs[k] = v; }, classList: { add: (c: string) => classes.add(c) } };
+    new Function('localStorage', 'matchMedia', 'document', readFileSync('public/theme-boot.js', 'utf8'))(
+      { getItem: () => stored }, () => ({ matches: systemDark }), { documentElement: el });
+    return { theme: attrs['data-theme'], dark: classes.has('dark') };
+  };
+  it('applies the cached theme before paint, resolving system via matchMedia', () => {
+    expect(run('dark', false)).toEqual({ theme: 'dark', dark: true });
+    expect(run('light', true)).toEqual({ theme: 'light', dark: false });
+    expect(run('system', true)).toEqual({ theme: 'dark', dark: true });
+    expect(run(null, false)).toEqual({ theme: 'light', dark: false });
+  });
+  it('is referenced from the options page head, not inline', () => {
+    const html = readFileSync('entrypoints/options/index.html', 'utf8');
+    expect(html).toMatch(/<head>[\s\S]*<script src="\/theme-boot\.js"><\/script>[\s\S]*<\/head>/);
+    expect(html).toContain('name="color-scheme" content="light dark"');
+  });
+});

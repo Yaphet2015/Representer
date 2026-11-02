@@ -33,13 +33,23 @@ export function createAutosaver<T>(save: (v: T) => Promise<unknown>, onStatus: (
   };
 }
 
-/** Which connection field a failed test points at (so the UI can outline it in red). */
-export function failedField(error: string): 'apiKey' | 'baseUrl' | 'model' | null {
+export type ConnErrorKind = 'auth' | 'url' | 'model' | 'network' | 'timeout' | 'generic';
+
+/** Classify a failed connection test so the UI can show a friendly message. */
+export function errorKind(error: string): ConnErrorKind {
   const e = error.toLowerCase();
   if (/model[_ ]not[_ ]found|model .*does not exist|no such model|unknown model/.test(e)) return 'model';
-  if (/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid api key|incorrect api key/.test(e)) return 'apiKey';
-  if (/enotfound|\b404\b|not found|failed to fetch|getaddrinfo|econnrefused|invalid url/.test(e)) return 'baseUrl';
-  return null;
+  if (/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid[_ ]api[_ ]key|incorrect api key/.test(e)) return 'auth';
+  if (/timed? ?out|etimedout|\babort/.test(e)) return 'timeout';
+  if (/enotfound|getaddrinfo|\b404\b|not found|invalid url/.test(e)) return 'url';
+  if (/failed to fetch|econnrefused|econnreset|network|fetch failed|err_/.test(e)) return 'network';
+  return 'generic';
+}
+
+/** Which connection field a failed test points at (so the UI can outline it in red). */
+export function failedField(error: string): 'apiKey' | 'baseUrl' | 'model' | null {
+  const k = errorKind(error);
+  return k === 'auth' ? 'apiKey' : k === 'url' || k === 'network' ? 'baseUrl' : k === 'model' ? 'model' : null;
 }
 
 /** Move item `from` → `to` in a copy of the list. */

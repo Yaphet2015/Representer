@@ -64,6 +64,7 @@ const zh = {
   sideName: '开个支线', sideDesc: '不打断主线',
   quickDesc: { 'translate-en': '保留术语', 'key-points': '一句一条', explain: '讲清难词', qa: '检验理解' } as Record<string, string>,
   // options v2
+  errKind: { auth: 'API Key 无效或没有权限，请检查后重试。', url: '找不到这个接口地址，请检查 Base URL。', model: '服务里没有这个模型，换一个模型名再试。', network: '连不上服务，请检查网络或 Base URL。', timeout: '请求超时，请稍后重试。', generic: '测试没有通过，请检查连接设置后重试。' } as Record<'auth' | 'url' | 'model' | 'network' | 'timeout' | 'generic', string>, errDetails: '详情',
   customModelHint: '按回车使用自定义名称…', settingsShort: '设置', autoSaved: '已自动保存', savingNow: '保存中…', saveFailedRetry: '保存失败，重试',
   navConnection: '连接', navInstructions: '自定义指令', navSkills: '快捷指令', navShortcuts: '快捷键', navGeneral: '通用',
   connDesc: '兼容 OpenAI 接口的服务地址、密钥和模型。', modelLabel: '模型', showKey: '显示密钥', hideKey: '隐藏密钥',
@@ -137,6 +138,7 @@ const en: Messages = {
   saveChanges: 'Save changes', add: 'Add', cancel: 'Cancel', noSkills: 'No Skills yet.', builtin: 'Built-in',
   confirmDelete: 'Delete?', delete: 'Delete', moveUp: 'Move up', moveDown: 'Move down', edit: 'Edit', resetSkills: 'Restore built-in Skills',
   errName: 'Please enter a name', errNameLong: 'Names can be at most 24 characters', errTemplate: 'Please enter a prompt template', errNoSkill: 'Skill not found',
+  errKind: { auth: 'The API key is invalid or lacks access. Check it and try again.', url: "Couldn't find this endpoint. Check the Base URL.", model: "The service doesn't have this model. Try another model name.", network: "Couldn't reach the service. Check your network or the Base URL.", timeout: 'The request timed out. Try again in a moment.', generic: "The test didn't pass. Check the connection settings and try again." }, errDetails: 'Details',
   customModelHint: 'Press Enter to use a custom name…', settingsShort: 'Settings', autoSaved: 'Saved automatically', savingNow: 'Saving…', saveFailedRetry: 'Save failed, retry',
   navConnection: 'Connection', navInstructions: 'Custom instructions', navSkills: 'Skills', navShortcuts: 'Shortcuts', navGeneral: 'General',
   connDesc: 'Endpoint, key and model for any OpenAI-compatible API.', modelLabel: 'Model', showKey: 'Show key', hideKey: 'Hide key',

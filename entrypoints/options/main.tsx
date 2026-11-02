@@ -4,7 +4,7 @@ import '@/assets/tailwind.css';
 import { KEYS, loadSettings, onStorageChange, saveSettings } from '@/lib/storage';
 import { rpc } from '@/lib/messages';
 import { isLocalUrl } from '@/lib/url';
-import { createAutosaver, failedField, type SaveStatus } from '@/lib/autosave';
+import { createAutosaver, errorKind, failedField, type SaveStatus } from '@/lib/autosave';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/bui/Button';
 import { useMock } from '@/lib/mock';
@@ -20,13 +20,15 @@ import { DEFAULT_SETTINGS, type Settings } from '@/lib/types';
 type Conn = { state: 'idle' } | { state: 'testing' } | { state: 'ok'; ms: number; reply: string } | { state: 'fail'; error: string };
 const SECTIONS = ['connection', 'instructions', 'skills', 'shortcuts', 'general'] as const;
 const MAX_PROMPT = 4000;
+/** Mirror the theme into localStorage so public/theme-boot.js can apply it before first paint. */
+export const cacheTheme = (pref: Settings['theme']) => { try { localStorage.setItem('rp-theme', pref ?? 'system'); } catch {} };
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
 function Options() {
   const t = useT();
   const lang = useLang();
   const theme = useTheme();
-  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.classList.toggle('dark', theme === 'dark'); }, [theme]);
   const [s, setS] = useState<Settings>(DEFAULT_SETTINGS);
   const sRef = useRef(s); sRef.current = s;
   const [shortcut, setShortcut] = useState<string | null>(null);
@@ -82,7 +84,7 @@ function Options() {
     setConn(res.ok ? { state: 'ok', ms: res.ms, reply: res.reply ?? '' } : { state: 'fail', error: res.error ?? t.unknownError });
   };
   useEffect(() => {
-    const load = () => loadSettings().then((v) => { sRef.current = v; setS(v); });
+    const load = () => loadSettings().then((v) => { sRef.current = v; setS(v); cacheTheme(v.theme); });
     load();
     // follow changes made elsewhere (another options tab), unless an edit here is still waiting to be written
     const off = onStorageChange([KEYS.settings], () => { if (!saver.pending()) load(); });
@@ -100,7 +102,6 @@ function Options() {
   }, []);
 
   const bad = conn.state === 'fail' ? failedField(conn.error) : null;
-  const hint = bad === 'apiKey' ? t.hintKey : bad === 'baseUrl' ? t.hintUrl : bad === 'model' ? t.hintModel : '';
   const pill = conn.state === 'testing' ? { cls: 'bg-accent-tint text-accent-ink', dot: 'bg-accent animate-pulse', text: t.stTesting }
     : conn.state === 'ok' ? { cls: 'bg-[color-mix(in_srgb,var(--green)_14%,transparent)] text-green', dot: 'bg-green', text: t.stOk(conn.ms) }
     : conn.state === 'fail' ? { cls: 'bg-red-tint text-red', dot: 'bg-red', text: t.stFail }
@@ -158,7 +159,15 @@ function Options() {
                   {conn.state === 'idle' && t.footUntested}
                   {conn.state === 'testing' && t.footTesting(s.model)}
                   {conn.state === 'ok' && t.footOk(conn.reply)}
-                  {conn.state === 'fail' && `${conn.error}${hint ? ` ${hint}` : ''}`}
+                  {conn.state === 'fail' && <>
+                    {t.errKind[errorKind(conn.error)]}
+                    <details data-error-details className="mt-1 text-ink-3 [&[open]>summary>svg]:rotate-90">
+                      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-[4px] text-[12px] hover:text-ink-2 focus-visible:shadow-[0_0_0_3px_var(--accent-ring)] [&::-webkit-details-marker]:hidden">
+                        <svg aria-hidden viewBox="0 0 16 16" className="size-3 transition-transform"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>{t.errDetails}
+                      </summary>
+                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-[8px] bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-relaxed text-ink-2">{conn.error}</pre>
+                    </details>
+                  </>}
                 </span>
                 <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={runTest} disabled={conn.state !== 'testing' && (!s.model || !canFetch)}>
                   {conn.state === 'testing' ? t.cancel : t.testConnection}</Button>
@@ -239,7 +248,7 @@ function Options() {
                   </Select>
                 </Field>
                 <Field label={t.appearance} htmlFor="f-theme">
-                  <Select id="f-theme" data-theme-select aria-label={t.appearance} value={s.theme ?? 'system'} onChange={(v) => update({ theme: v as Settings['theme'] }, 'now')}>
+                  <Select id="f-theme" data-theme-select aria-label={t.appearance} value={s.theme ?? 'system'} onChange={(v) => { cacheTheme(v as Settings['theme']); update({ theme: v as Settings['theme'] }, 'now'); }}>
                     <option value="system">{t.themeSystem}</option><option value="light">{t.themeLight}</option><option value="dark">{t.themeDark}</option>
                   </Select>
                 </Field>
