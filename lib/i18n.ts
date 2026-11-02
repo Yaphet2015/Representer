@@ -33,7 +33,7 @@ const zh = {
   closeSession: (name: string) => `关闭${name}`, forkTitle: '分叉出一个支线会话（也可以输入 /side）', newSide: '新支线',
   // options
   settingsTitle: 'Representer 设置', language: '界面语言', langAuto: '自动（跟随浏览器）',
-  baseUrl: 'Base URL（OpenAI 兼容）', apiKey: 'API Key', model: 'Model',
+  baseUrl: 'Base URL（兼容主流模型接口）', apiKey: 'API Key', model: 'Model',
   unknownError: '未知错误', testing: '测试中…', testConnection: '测试连接',
   testSending: (m: string) => `正在向 ${m} 发送测试请求…`,
   testOk: (ms: number, reply?: string) => `✓ 连接成功 · ${ms} ms${reply ? ` · 回复：${reply}` : ''}`,
