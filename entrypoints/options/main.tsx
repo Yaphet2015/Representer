@@ -97,6 +97,10 @@ function Options() {
             className="block w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-accent"
           />
         </div>
+        <label className="flex items-start gap-2 text-[13px] text-zinc-700" data-analytics>
+          <input type="checkbox" className="mt-0.5" checked={s.analytics !== false} onChange={(e) => setS({ ...s, analytics: e.target.checked })} />
+          <span><span className="font-medium">{t.analytics}</span><span className="block text-[12px] leading-relaxed text-zinc-500">{t.analyticsDesc}</span></span>
+        </label>
         {import.meta.env.DEV && (() => {
           const m = mockText(lang);
           const auto = !s.mock && useMock(s); // no key (and not a local server) → mock is used automatically
@@ -114,7 +118,7 @@ function Options() {
             </div>
           );
         })()}
-        <Button variant="primary" onClick={async () => { await saveSettings(s); setSaved(true); setTimeout(() => setSaved(false), 1500); }}>
+        <Button variant="primary" onClick={async () => { await saveSettings(s); void rpc('track', { event: 'settings_saved' }); setSaved(true); setTimeout(() => setSaved(false), 1500); }}>
           {saved ? t.saved : t.save}</Button>
       </section>
       <SkillsManager />

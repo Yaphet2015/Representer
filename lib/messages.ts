@@ -5,6 +5,7 @@ import type { TestResult } from './models';
 import type { SessionsState } from './sessions';
 import type { Settings, Summary } from './types';
 import type { Anchors } from './locate';
+import type { EventName } from './analytics';
 
 /** request → response payload, keyed by message type */
 export interface Api {
@@ -18,6 +19,8 @@ export interface Api {
   getSessions: { req: { url: string }; res: { state: SessionsState } };
   forkSession: { req: { url: string; from: string }; res: { state: SessionsState; id: string } };
   closeSession: { req: { url: string; id: string }; res: { state: SessionsState } };
+  /** usage event from a UI page (options); background applies the allowlist and opt-out */
+  track: { req: { event: Extract<EventName, 'settings_saved'> }; res: {} };
   setActiveSession: { req: { url: string; id: string }; res: { state: SessionsState } };
 }
 export type MsgType = keyof Api;

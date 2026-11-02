@@ -8,6 +8,8 @@ import { appendMessages, closeSession, forkSession, setActive } from '@/lib/sess
 import { messages, resolveLang, uiLanguage } from '@/lib/i18n';
 import { chromeKV, loadSettings } from '@/lib/storage';
 import type { ChatMessage } from '@/lib/types';
+import { createAnalytics, durationBucket } from '@/lib/analytics';
+import { useMock } from '@/lib/mock';
 
 const COMMAND = 'toggle-overlay';
 
@@ -16,17 +18,25 @@ export default defineBackground(() => {
   const summarizer = createSummarizeRunner(cache);
   /** settings + resolved UI language */
   const ctx = async () => { const s = await loadSettings(); return { s, lang: resolveLang(s.lang, uiLanguage()) }; };
+  const analytics = createAnalytics({
+    kv: chromeKV,
+    secret: import.meta.env.WXT_GA_API_SECRET,
+    enabled: async () => { if (import.meta.env.DEV) return false; const s = await loadSettings(); return s.analytics !== false && !useMock(s); },
+  });
+  chrome.runtime.onInstalled.addListener(({ reason }) => {
+    if (reason === 'install' || reason === 'update') void analytics.track('extension_installed', { reason, version: chrome.runtime.getManifest().version });
+  });
 
   // ── toggle: keyboard command + toolbar button ───────────────────────────
-  const toggle = async (tabId?: number) => {
+  const toggle = async (tabId: number | undefined, source: 'shortcut' | 'toolbar') => {
     if (tabId == null) return;
-    try { await chrome.tabs.sendMessage(tabId, TOGGLE); } catch { /* no content script (chrome:// etc.) */ }
+    try { await chrome.tabs.sendMessage(tabId, TOGGLE); void analytics.track('panel_opened', { source }); } catch { /* no content script (chrome:// etc.) */ }
   };
   chrome.commands.onCommand.addListener(async (cmd, tab) => {
     if (cmd !== COMMAND) return;
-    toggle(tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
+    toggle(tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id, 'shortcut');
   });
-  chrome.action.onClicked.addListener((tab) => toggle(tab.id));
+  chrome.action.onClicked.addListener((tab) => toggle(tab.id, 'toolbar'));
 
   // ── request/response handlers (typed by lib/messages.ts) ────────────────
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
@@ -48,6 +58,7 @@ export default defineBackground(() => {
       return { state, id };
     },
     closeSession: async ({ url, id }) => ({ state: await cache.updateSessions(url, (s) => closeSession(s, id)) }),
+    track: async ({ event }) => { if (event === 'settings_saved') await analytics.track(event); return {}; },
     setActiveSession: async ({ url, id }) => ({ state: await cache.updateSessions(url, (s) => setActive(s, id)) }),
   };
   chrome.runtime.onMessage.addListener((msg: Request, _sender, reply) => {
@@ -64,7 +75,15 @@ export default defineBackground(() => {
       cache, runner: summarizer,
       summarize: async ({ url, title, content }, signal, onDelta, onThinking, more) => {
         const { s, lang } = await ctx();
-        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, more);
+        const t0 = Date.now();
+        let chunked = false;
+        const hooks = { ...more, onStatus: (st: Parameters<typeof more.onStatus>[0]) => { if (st && typeof st === 'object') chunked = true; more.onStatus(st); } };
+        const report = (success: boolean) => void analytics.track('overview_generated', { success, duration_bucket: durationBucket(Date.now() - t0), chunked });
+        try {
+          const r = await providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, hooks);
+          report(true);
+          return r;
+        } catch (e) { if (!signal.aborted) report(false); throw e; }
       },
     });
   });
@@ -85,6 +104,7 @@ export default defineBackground(() => {
         const out = await providerFor(s, lang).chat(c, history, text, (delta) => post({ delta }), ac.signal);
         const userMsg: ChatMessage = label ? { role: 'user', content: text, label } : { role: 'user', content: text };
         await cache.updateSessions(url, (s) => appendMessages(s, sid, [userMsg, { role: 'assistant', content: out }]));
+        void analytics.track(label ? 'skill_run' : 'chat_message_sent');
         post({ done: true, text: out }); // full answer is authoritative: streamed deltas can miss the first chunk
       } catch (e: any) {
         post({ error: String(e?.message ?? e) });

@@ -18,6 +18,7 @@ const zh = {
   resizeHandle: '拖动调整宽度，双击恢复默认',
   summaryFailed: (e: string) => `总结失败：${e}`, retry: '重试', overviewIncomplete: '模型没有给出完整的概览，请重试或换一个模型', repairing: '正在修正输出…', readingPage: '正在阅读页面…', readChunks: (read: number, total: number) => `已读 ${read}/${total} 块`,
   summaryExpired: '总结已过期，请点击「重新总结」。',
+  analytics: '匿名使用统计', analyticsDesc: '发送匿名的功能使用次数（如打开面板、生成概览），帮助改进 Representer。不包含网址、网页内容、对话或 API Key。',
   cancelSummary: '取消', summaryCancelled: '已取消自动总结', noOverviewHint: '这页还没有概览。可以现在开始总结，也可以直接和页面对话。', startSummary: '开始总结', chatNow: '直接对话',
   noSummaryChat: '还没有概览，回答时会按需读取页面原文。',
   // chat
@@ -79,6 +80,7 @@ const en: Messages = {
   resizeHandle: 'Drag to resize, double-click to reset',
   summaryFailed: (e) => `Summary failed: ${e}`, retry: 'Retry', overviewIncomplete: "The model didn't return a complete overview. Try again or pick another model.", repairing: 'Fixing the output…', readingPage: 'Reading the page…', readChunks: (read, total) => `Read ${read}/${total} chunks`,
   summaryExpired: 'The summary has expired. Click “Re-summarize”.',
+  analytics: 'Anonymous usage stats', analyticsDesc: 'Send anonymous feature counts (e.g. panel opened, overview generated) to help improve Representer. Never includes URLs, page content, chats or API keys.',
   cancelSummary: 'Cancel', summaryCancelled: 'Automatic summary cancelled', noOverviewHint: 'This page has no overview yet. Start the summary now, or chat with the page directly.', startSummary: 'Start summary', chatNow: 'Chat now',
   noSummaryChat: 'No overview yet; replies read the page text as needed.',
   emptyMain: 'Ask anything about this page.', emptySide: 'This side chat is empty.',

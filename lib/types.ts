@@ -22,5 +22,5 @@ export interface Summary {
   quote?: Excerpt;
 }
 export interface ChatMessage { role: 'user' | 'assistant'; content: string; /** what the UI shows instead of content (e.g. a Skill run) */ label?: string }
-export interface Settings { baseUrl: string; apiKey: string; model: string; mock: boolean; /** extra user instructions added to the built-in prompts ('' = none) */ systemPrompt?: string; /** UI language override */ lang?: 'auto' | 'zh-CN' | 'en' }
-export const DEFAULT_SETTINGS: Settings = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', mock: false, systemPrompt: '', lang: 'auto' };
+export interface Settings { baseUrl: string; apiKey: string; model: string; mock: boolean; /** extra user instructions added to the built-in prompts ('' = none) */ systemPrompt?: string; /** UI language override */ lang?: 'auto' | 'zh-CN' | 'en'; /** anonymous usage stats (default on) */ analytics?: boolean }
+export const DEFAULT_SETTINGS: Settings = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', mock: false, systemPrompt: '', lang: 'auto', analytics: true };

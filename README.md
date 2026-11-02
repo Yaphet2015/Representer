@@ -28,7 +28,7 @@ English · [简体中文](./README.zh-CN.md)
 - ⌨️ **`⌘E` / `Ctrl+E`**: toggle the panel, which slides in with a spring animation. You can minimize it and drag to resize it (320–640px; the width is remembered).
 - 🔝 **Always on top**: the panel renders in the browser's top layer, so site navbars and popups can't cover it. The rest of the page stays clickable.
 - 🌐 **i18n**: English and 简体中文. The language follows the browser, or you can set it in Options.
-- 🔑 **BYOK, privacy first**: requests go from the extension straight to the endpoint you configure, with no third-party servers in between.
+- 🔑 **BYOK, privacy first**: requests go from the extension straight to the endpoint you configure, with no third-party servers in between. Only optional anonymous usage stats are sent (no URLs, content or keys; off switch in Settings).
 
 ## Screenshots
 
