@@ -19,6 +19,7 @@ import { pageHash } from '@/lib/cache';
 import { ThoughtLine } from './ThoughtLine';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { guardScroll } from '@/lib/scroll-guard';
+import { useTheme } from './theme';
 import { GLASS_LIGHT, glassAlpha, sampleBehind } from '@/lib/glass';
 
 const both = (a: () => void, b: () => void) => () => { a(); b(); };
@@ -158,19 +159,20 @@ export function App() {
     return !o;
   })), [url, run]);
 
+  const theme = useTheme();
   const { collapsed, glass, scrollRef, expand } = useCapsuleCollapse(tab);
   const isOverview = tab === 'overview';
 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div ref={rootRef} translate="no" dir="ltr"
+        <motion.div ref={rootRef} translate="no" dir="ltr" data-theme={theme}
           // Esc anywhere inside the panel closes it, unless a control already used it (slash menu) or an IME is composing
           onKeyDown={(e) => { if (escClosesPanel({ key: e.key, defaultPrevented: e.defaultPrevented, isComposing: e.nativeEvent.isComposing, keyCode: e.keyCode })) { e.stopPropagation(); setOpen(false); } }}
           initial={{ opacity: 0.6, x: width + 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0.6, x: width + 20 }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
           // whole-panel frosted glass; --glass-a follows the page behind (lib/glass.ts), secondary text one step darker on glass
-          className="rp-panel-glass notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden font-sans text-zinc-900 antialiased"
+          className="rp-panel-glass notranslate pointer-events-auto fixed right-5 top-5 isolate flex flex-col overflow-hidden font-sans text-ink antialiased"
           style={{ width, minWidth: width, maxWidth: width, boxSizing: 'border-box', userSelect: resizing ? 'none' : undefined, borderRadius: 14, height: 'calc(100vh - 40px)' }}
         >
           {/* blue glow under the floating controls, on both pages; fades once content scrolls under them */}

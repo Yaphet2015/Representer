@@ -5,9 +5,9 @@
 @tailwind utilities;
 
 :host { all: initial; }
-.rp-scroll { scrollbar-width: thin; scrollbar-color: #d4d4d8 transparent; }
+.rp-scroll { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
 .rp-scroll::-webkit-scrollbar { width: 6px; }
-.rp-scroll::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 999px; }
+.rp-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; }
 .rp-scroll::-webkit-scrollbar-track { background: transparent; }
 .rp-scroll::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 /* Markdown in replies (components/Markdown.tsx). streamdown adds generic utility classes (flex, gap-2, h-8, p-4, my-4,
@@ -26,8 +26,8 @@
 .rp-md a { color: var(--accent); text-decoration: none; } .rp-md a:hover { text-decoration: underline; }
 .rp-md blockquote { padding-left: 10px; border-left: 3px solid var(--accent-tint); color: var(--ink-2); }
 .rp-md hr { border: 0; border-top: 1px solid var(--line); }
-.rp-md :not(pre) > code { background: #f4f4f5; padding: 1px 4px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.rp-md [data-streamdown="code-block"] { display: block; padding: 0; gap: 0; border: 1px solid var(--line); border-radius: 8px; background: #f7f8fa; overflow: hidden; }
+.rp-md :not(pre) > code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.rp-md [data-streamdown="code-block"] { display: block; padding: 0; gap: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--pre-bg); overflow: hidden; }
 .rp-md [data-streamdown="code-block-header"] { display: block; height: auto; padding: 6px 10px 0; font-size: 11px; line-height: 14px; color: var(--ink-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: lowercase; }
 .rp-md [data-streamdown="code-block-body"] { padding: 0; margin: 0; border: 0; overflow: auto; }
 .rp-md pre { margin: 0; padding: 6px 10px 8px; background: none !important; font-size: 12px; line-height: 1.5; white-space: pre; }
@@ -37,7 +37,7 @@
 .rp-md [data-streamdown="table-wrapper"] { border: 0; }
 .rp-md table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .rp-md th, .rp-md td { border: 1px solid var(--line); padding: 3px 8px !important; text-align: left; vertical-align: top; white-space: normal !important; }
-.rp-md th { background: #f7f8fa; font-weight: 600; }
+.rp-md th { background: var(--pre-bg); font-weight: 600; }
 .rp-thinking { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12.5px; }
 .rp-thinking i { width: 4px; height: 4px; border-radius: 999px; background: var(--accent); opacity: .3; animation: rp-dot 1.2s ease-in-out infinite; }
 .rp-thinking i:nth-child(2) { animation-delay: .15s; } .rp-thinking i:nth-child(3) { animation-delay: .3s; }
@@ -63,15 +63,17 @@ button::-moz-focus-inner { border: 0; }
 /* no scroll chaining from any scroll container in the panel to the host page (see lib/scroll-guard.ts for the rest) */
 .rp-scroll, textarea, [class*="overflow-y-auto"], [class*="overflow-x-auto"], [class*="overflow-auto"] { overscroll-behavior: contain; }
 /* F2 floating material: capsule (both states) and close button */
-.rp-glass { background: rgba(255,255,255,.25); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  border: 1px solid rgba(0,0,0,.12); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 12px -2px rgba(0,0,0,.12); }
+.rp-glass { background: rgba(var(--glass-rgb),.25); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--edge); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 12px -2px rgba(0,0,0,.12); }
 /* whole panel: frosted glass over the host page. --glass-a is .82, raised to .88 over dark / vivid pages (lib/glass.ts) */
 .rp-panel-glass { --glass-a: .82; --ink-3: var(--ink-2);
-  background: rgba(255,255,255,var(--glass-a)); -webkit-backdrop-filter: blur(28px) saturate(1.1); backdrop-filter: blur(28px) saturate(1.1);
-  border: 1px solid rgba(0,0,0,.10); box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 24px 60px -12px rgba(0,0,0,.35);
+  background: rgba(var(--glass-rgb),var(--glass-a)); -webkit-backdrop-filter: blur(28px) saturate(1.1); backdrop-filter: blur(28px) saturate(1.1);
+  border: 1px solid var(--edge); box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 24px 60px -12px rgba(0,0,0,.35);
   transition: background-color 300ms ease; }
 /* G2 composer and the quick-actions menu above it */
-.rp-composer { background: rgba(255,255,255,.65); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3);
-  border: 1px solid rgba(0,0,0,.12); border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 18px -4px rgba(0,0,0,.14); }
-.rp-menu { background: rgba(255,255,255,.92); -webkit-backdrop-filter: blur(20px) saturate(1.3); backdrop-filter: blur(20px) saturate(1.3);
-  border: 1px solid rgba(0,0,0,.12); border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 28px -6px rgba(0,0,0,.18); }
+.rp-composer { background: rgba(var(--glass-rgb),.65); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid var(--edge); border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 18px -4px rgba(0,0,0,.14); }
+.rp-menu { background: rgba(var(--glass-rgb),.92); -webkit-backdrop-filter: blur(20px) saturate(1.3); backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 10px 28px -6px rgba(0,0,0,.18); }
+/* dark theme: the panel stays readable over bright pages */
+.rp-panel-glass[data-theme="dark"] { background: rgba(var(--glass-rgb), .95); }

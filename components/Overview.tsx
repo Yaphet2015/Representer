@@ -184,7 +184,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
             </SourceRow>
           )}
         </div>
-        <p className="text-[13.5px] leading-[1.7] text-zinc-700">
+        <p className="text-[13.5px] leading-[1.7] text-ink">
           <Marked text={summary.overview} onAsk={streaming ? undefined : onAsk} />{caretAt === 'overview' && <Caret />}
         </p>
       </section>
@@ -192,7 +192,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
         const c = BRANCH_COLORS[i % BRANCH_COLORS.length];
         return (
           <section key={i} data-branch={i}>
-            <h4 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold text-zinc-900">
+            <h4 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold text-ink">
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c, boxShadow: `0 0 0 3px ${c}26` }} />
               <Jump item={{ anchor: sec.anchor, quote: sec.quote, text: sec.title }} anchors={anchors} enabled={ok.has(`${i}`)} className="block">{stripMarks(sec.title)}{caretAt === `${i}` && <Caret />}</Jump>
             </h4>
@@ -206,7 +206,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
                     {/* curved elbow from the trunk into this node */}
                     <span className="absolute left-0 top-0 h-[13px] w-4 rounded-bl-[10px] border-b-[1.5px] border-l-[1.5px]" style={{ borderColor: c, opacity: 0.55 }} />
                     <span className="absolute left-[15px] top-[10px] h-[7px] w-[7px] rounded-full" style={{ background: c }} />
-                    <Jump item={bulletItem(sec, j)} anchors={anchors} enabled={ok.has(`${i}:${j}`)} className="block text-[13px] leading-[1.6] text-zinc-700"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
+                    <Jump item={bulletItem(sec, j)} anchors={anchors} enabled={ok.has(`${i}:${j}`)} className="block text-[13px] leading-[1.6] text-ink"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
                   </li>
                 );
               })}

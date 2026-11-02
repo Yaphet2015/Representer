@@ -22,7 +22,7 @@ describe('floating capsule', () => {
     expect(tab(html, 'chat')).toContain('tabindex="0"');
     expect(tab(html, 'overview')).toContain('aria-selected="false"');
     expect(tab(html, 'overview')).toContain('tabindex="-1"');
-    expect(tab(html, 'overview')).toContain('hover:bg-white/50');
+    expect(tab(html, 'overview')).toContain('hover:bg-hover');
   });
 
   it('collapses to icons: labels leave the layout and the name moves to title / aria-label', () => {
@@ -54,7 +54,7 @@ describe('floating capsule', () => {
     expect(cap()).not.toContain('data-frost');
     expect(tab(cap(), 'overview')).toContain('var(--accent)_16%');
     const css = readFileSync('assets/tailwind.css', 'utf8');
-    expect(css).toMatch(/\.rp-glass \{ background: rgba\(255,255,255,\.25\); -webkit-backdrop-filter: blur\(6px\)/);
+    expect(css).toMatch(/\.rp-glass \{ background: rgba\(var\(--glass-rgb\),\.25\); -webkit-backdrop-filter: blur\(6px\)/);
     expect(css).not.toContain('rp-frost');
   });
 

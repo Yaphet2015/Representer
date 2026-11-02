@@ -86,7 +86,7 @@ export function Composer({ value, onChange, onSubmit, disabled, canSend, status,
             disabled={disabled}
             onMouseDown={(e) => e.preventDefault() /* keep the input focused, so the keyboard drives the menu */}
             onClick={(e) => { e.stopPropagation(); if (menu.mode === 'slash') { onChange(''); setPlusOpen(true); } else setPlusOpen((o) => !o); inputRef.current?.focus(); }}
-            className={`grid size-7 shrink-0 place-items-center rounded-lg transition-[background-color,color] duration-150 disabled:opacity-50 ${plusOn ? 'bg-[color-mix(in_srgb,var(--accent)_14%,rgba(255,255,255,.6))] text-accent-ink' : 'text-ink-2 enabled:hover:bg-hover'}`}
+            className={`grid size-7 shrink-0 place-items-center rounded-lg transition-[background-color,color] duration-150 disabled:opacity-50 ${plusOn ? 'bg-[color-mix(in_srgb,var(--accent)_14%,rgba(var(--glass-rgb),.6))] text-accent-ink' : 'text-ink-2 enabled:hover:bg-hover'}`}
           >
             <Plus className={`size-4 transition-transform duration-200 ease-out motion-reduce:transition-none ${plusOn ? 'rotate-45' : ''}`} />
           </button>
