@@ -2,8 +2,9 @@
 import { SUMMARY_PORT, type SummaryEvent, type SummaryRequest } from './messages';
 import { createPartialReader } from './partial-json';
 import type { Summary } from './types';
+import type { OverviewStatus } from './overview-agent';
 
-type Final = Exclude<SummaryEvent, { delta: string } | { thinking: string }>;
+type Final = Exclude<SummaryEvent, { delta: string } | { thinking: string } | { partial: Summary } | { status: unknown }>;
 interface Port {
   postMessage(m: SummaryRequest): void;
   disconnect(): void;
@@ -15,7 +16,7 @@ interface Port {
  * Start a streaming summary. `onPartial` gets the readable overview so far (throttled); `done` settles with the final
  * event. A port that drops without a final event (the worker restarted) settles as an error, never hangs.
  */
-export function streamSummary(req: SummaryRequest, onPartial: (s: Summary) => void, connect: () => Port = () => chrome.runtime.connect({ name: SUMMARY_PORT }) as unknown as Port, onThinking?: (t: string) => void) {
+export function streamSummary(req: SummaryRequest, onPartial: (s: Summary) => void, connect: () => Port = () => chrome.runtime.connect({ name: SUMMARY_PORT }) as unknown as Port, onThinking?: (t: string) => void, onStatus?: (s: OverviewStatus) => void) {
   const port = connect();
   const reader = createPartialReader(onPartial);
   let settle!: (e: Final) => void, settled = false;
@@ -23,6 +24,9 @@ export function streamSummary(req: SummaryRequest, onPartial: (s: Summary) => vo
   port.onMessage.addListener((e) => {
     if ('delta' in e) { if (!settled) reader.push(e.delta); return; }
     if ('thinking' in e) { if (!settled) onThinking?.(e.thinking); return; }
+    // the overview agent sends whole pieces as they are accepted, not JSON text
+    if ('partial' in e) { if (!settled) onPartial(e.partial); return; }
+    if ('status' in e) { if (!settled) onStatus?.(e.status); return; }
     settle(e); port.disconnect();
   });
   port.onDisconnect.addListener(() => settle({ error: 'Connection to the extension was lost' }));

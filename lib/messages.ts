@@ -1,5 +1,6 @@
 /** Typed message contract between the content script / options page and the background worker. */
 import type { CachedSummary } from './cache';
+import type { OverviewStatus } from './overview-agent';
 import type { TestResult } from './models';
 import type { SessionsState } from './sessions';
 import type { Settings, Summary } from './types';
@@ -7,7 +8,7 @@ import type { Anchors } from './locate';
 
 /** request → response payload, keyed by message type */
 export interface Api {
-  getCached: { req: { url: string }; res: { cached: CachedSummary | null } };
+  getCached: { req: { url: string; /** pageHash of the page text: a summary of other text is not returned */ hash?: string }; res: { cached: CachedSummary | null } };
   summarize: { req: { url: string; title: string; content: string; force: boolean; anchors?: Anchors }; res: { summary: Summary; anchors?: Anchors } | { cancelled: true } };
   /** abort the running summarize of this page (no cache write, no error) */
   cancelSummarize: { req: { url: string }; res: {} };
@@ -49,4 +50,4 @@ export type ChatEvent = { delta: string } | { done: true; text?: string } | { er
 export const SUMMARY_PORT = 'summary';
 export interface SummaryRequest { url: string; title: string; content: string; force: boolean; anchors?: Anchors }
 /** `thinking`: the model's reasoning as it streams, for the status row only (never part of the summary or the cache) */
-export type SummaryEvent = { delta: string } | { thinking: string } | { done: true; summary: Summary; anchors?: Anchors } | { cancelled: true } | { error: string };
+export type SummaryEvent = { delta: string } | { thinking: string } | { partial: Summary } | { status: OverviewStatus } | { done: true; summary: Summary; anchors?: Anchors } | { cancelled: true } | { error: string };

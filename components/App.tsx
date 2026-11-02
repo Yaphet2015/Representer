@@ -14,6 +14,8 @@ import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
 import { createThoughtTicker } from '@/lib/thinking';
+import type { OverviewStatus } from '@/lib/overview-agent';
+import { pageHash } from '@/lib/cache';
 import { ThoughtLine } from './ThoughtLine';
 import { escClosesPanel, type Tab } from '@/lib/capsule';
 import { guardScroll } from '@/lib/scroll-guard';
@@ -57,6 +59,7 @@ export function App() {
   const [partial, setPartial] = useState<Summary | null>(null);
   /** the reasoning sentence shown in the status row before any of the answer arrives ('' = the plain status text) */
   const [thought, setThought] = useState('');
+  const [status, setStatus] = useState<OverviewStatus>(null);
   /** when the running summary started: the status timer keeps counting when the row switches to the streaming overview */
   const [startedAt, setStartedAt] = useState(0);
   /** the running stream; stopping it closes its port, which cancels the model call */
@@ -97,19 +100,20 @@ export function App() {
     const t0 = Date.now();
     setCacheInfo(null);
     stopStream();
-    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStartedAt(Date.now());
+    setUrl(u); setLoading(true); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStatus(null); setStartedAt(Date.now());
     if (force) { setSummary(null); setTab('overview'); }
     try {
+      pageRef.current = null;
+      const page = getPage();
       if (!force) {
-        const c = await rpc('getCached', { url: u });
+        // the cache is by URL and page text: a page whose text changed is summarized again
+        const c = await rpc('getCached', { url: u, hash: pageHash(page.content) });
         if (stale()) return;
         if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
       }
-      pageRef.current = null;
-      const page = getPage();
       setTitle(page.title);
       const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
-      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d));
+      const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d), (st) => { if (!stale()) setStatus(st); });
       stream.current = st;
       const r = await st.done.finally(() => ticker.stop());
       if (stream.current === st) stream.current = null;
@@ -186,7 +190,7 @@ export function App() {
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
                 {loading && partial && (
-                  <Overview streaming startedAt={startedAt} summary={partial} pageTitle={title} host={pageHost()}>
+                  <Overview streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
                     <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
                   </Overview>
                 )}
@@ -194,7 +198,7 @@ export function App() {
                   <div className="flex h-full flex-col overflow-hidden">
                     {/* first row while summarizing: status, timer, cancel */}
                     <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
-                      <LoadingState label={thought ? <ThoughtLine line={thought} /> : t.summarizingLabel} tone="bg-accent" since={startedAt} />
+                      <LoadingState label={typeof status === 'object' && status ? t.readChunks(status.read, status.total) : status === 'repairing' ? t.repairing : thought ? <ThoughtLine line={thought} /> : status === 'reading' ? t.readingPage : t.summarizingLabel} tone="bg-accent" since={startedAt} />
                       <Button variant="secondary" size="xs" data-cancel onClick={cancel} className="shrink-0">{t.cancelSummary}</Button>
                     </div>
                     <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>

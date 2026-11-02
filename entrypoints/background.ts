@@ -1,4 +1,4 @@
-import { createCache } from '@/lib/cache';
+import { createCache, pageHash } from '@/lib/cache';
 import { CHAT_PORT, SUMMARY_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
 import { listModels, testConnection } from '@/lib/models';
 import { providerFor } from '@/lib/provider';
@@ -31,9 +31,9 @@ export default defineBackground(() => {
   // ── request/response handlers (typed by lib/messages.ts) ────────────────
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
   const handlers: Handlers = {
-    getCached: async ({ url }) => ({ cached: await cache.getSummary(url) }),
+    getCached: async ({ url, hash }) => ({ cached: await cache.getSummary(url, hash) }),
     summarize: async ({ url, title, content, force, anchors }) => {
-      if (!force) { const c = await cache.getSummary(url); if (c) return { summary: c.summary, anchors: c.anchors }; }
+      if (!force) { const c = await cache.getSummary(url, pageHash(content)); if (c) return { summary: c.summary, anchors: c.anchors }; }
       const { s, lang } = await ctx();
       return summarizer.run({ url, title, content, anchors }, (signal) => providerFor(s, lang).summarize(title, url, content, signal));
     },
@@ -62,9 +62,9 @@ export default defineBackground(() => {
     if (port.name !== SUMMARY_PORT) return;
     serveSummaryPort(port, {
       cache, runner: summarizer,
-      summarize: async ({ url, title, content }, signal, onDelta, onThinking) => {
+      summarize: async ({ url, title, content }, signal, onDelta, onThinking, more) => {
         const { s, lang } = await ctx();
-        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking);
+        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, more);
       },
     });
   });
