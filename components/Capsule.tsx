@@ -34,7 +34,7 @@ export function Capsule({ value, onChange, collapsed = false, summarizing = fals
               // a ring, not an outline: the panel stylesheet strips outlines (assets/tailwind.css)
               'focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1',
               collapsed ? 'w-[26px] px-0' : 'px-2.5',
-              selected ? 'bg-[color-mix(in_srgb,var(--accent)_16%,rgba(255,255,255,.55))] text-accent-ink' : 'text-ink-2 hover:bg-white/50 hover:text-ink',
+              selected ? 'bg-[color-mix(in_srgb,var(--accent)_16%,rgba(var(--glass-rgb),.55))] text-accent-ink' : 'text-ink-2 hover:bg-hover hover:text-ink',
             )}>
             {id === 'overview'
               ? (summarizing ? <LoaderGrid tone="bg-accent" /> : <Sparkle className="size-3.5 shrink-0" />)
@@ -54,7 +54,7 @@ export function CloseButton({ onClose }: { onClose: () => void }) {
   const t = useT();
   return (
     <button type="button" data-close onClick={onClose} aria-label={t.close} title={t.closeEsc}
-      className="rp-glass grid size-8 place-items-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:bg-white/60 hover:text-ink active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
+      className="rp-glass grid size-8 place-items-center rounded-[10px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
       <Close className="size-4" />
     </button>
   );

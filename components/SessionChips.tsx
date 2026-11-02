@@ -8,7 +8,7 @@ export function SessionChips({ state, onSwitch, onClose, onFork, disabled }: {
 }) {
   const t = useT(); const lang = useLang();
   return (
-    <div data-session-chips className="flex shrink-0 items-center gap-1 border-b border-zinc-100 py-1.5 pl-3 pr-2">
+    <div data-session-chips className="flex shrink-0 items-center gap-1 border-b border-line py-1.5 pl-3 pr-2">
       {/* only the chips scroll; the fork button stays pinned at the far right */}
       <div data-chips-scroller className="rp-noscrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {state.sessions.map((s) => {

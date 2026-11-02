@@ -91,6 +91,17 @@ export function createSkillStore(kv: KV, lang: Lang = 'zh-CN', genId: () => stri
       if (i < 0 || j < 0 || j >= all.length) return;
       [all[i], all[j]] = [all[j]!, all[i]!]; await save(all);
     },
+    /** Persist a new order (ids not listed keep their relative order at the end). */
+    async reorder(ids: string[]) {
+      const all = await list(); const pos = new Map(ids.map((id, i) => [id, i]));
+      await save([...all].sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9)));
+    },
+    async moveTo(id: string, index: number) {
+      const all = await list(); const i = all.findIndex((s) => s.id === id); if (i < 0) return;
+      const [x] = all.splice(i, 1); all.splice(Math.max(0, Math.min(index, all.length)), 0, x!); await save(all);
+    },
+    /** Replace the whole list (used by undo). */
+    async replaceAll(skills: Skill[]) { await save(skills.map((s) => ({ ...s }))); },
     async resetDefaults() { await save(DEFAULT_SKILLS.map((s) => ({ ...s }))); },
     recent,
     async markUsed(id: string) { await kv.set(K_RECENT, bumpRecent(await recent(), id)); },

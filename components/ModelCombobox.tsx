@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from './i18n';
+import { errorKind } from '@/lib/autosave';
+import { Icon, Ic, inputCls } from './options/ui';
 
 /** Searchable combobox: filter the fetched list, or type any custom model name. */
-export function ModelCombobox({ value, onChange, models, loading, error, onRefresh, canFetch }: {
+export function ModelCombobox({ value, onChange, models, loading, error, onRefresh, canFetch, invalid, onCommit, id }: {
   value: string; onChange: (v: string) => void; models: string[]; loading: boolean; error: string; onRefresh: () => void; canFetch: boolean;
+  invalid?: boolean; onCommit?: (v: string) => void; id?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -19,46 +22,50 @@ export function ModelCombobox({ value, onChange, models, loading, error, onRefre
     const onDoc = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', onDoc); return () => document.removeEventListener('mousedown', onDoc);
   }, []);
-  const pick = (m: string) => { onChange(m); setQuery(null); setOpen(false); };
+  const pick = (m: string) => { onChange(m); onCommit?.(m); setQuery(null); setOpen(false); };
 
   return (
     <div ref={box} className="relative">
       <div className="flex gap-2">
-        <input
-          role="combobox" aria-expanded={open} aria-autocomplete="list" aria-label="Model"
-          value={value} placeholder={t.modelPlaceholder}
-          onFocus={() => setOpen(true)}
-          onChange={(e) => { onChange(e.target.value); setQuery(e.target.value); setOpen(true); }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, filtered.length - 1)); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-            else if (e.key === 'Enter' && open && filtered[active]) { e.preventDefault(); pick(filtered[active]!); }
-            else if (e.key === 'Escape') setOpen(false);
-          }}
-          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-ring)]"
-        />
-        <button type="button" onClick={onRefresh} disabled={!canFetch || loading} title={t.refreshModels}
-          className="shrink-0 rounded-lg border border-zinc-200 px-3 text-[13px] text-zinc-700 hover:bg-zinc-50 disabled:opacity-40">
-          <span className={loading ? 'inline-block animate-spin' : ''}>↻</span> {t.refresh}
+        <div className="relative flex-1">
+          <input id={id}
+            role="combobox" aria-expanded={open} aria-autocomplete="list" aria-label={t.modelLabel} aria-invalid={invalid || undefined}
+            value={value} placeholder={t.modelPlaceholder}
+            onFocus={() => setOpen(true)}
+            onBlur={() => onCommit?.(value)}
+            onChange={(e) => { onChange(e.target.value); setQuery(e.target.value); setOpen(true); }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, filtered.length - 1)); }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+              else if (e.key === 'Enter' && open && filtered[active]) { e.preventDefault(); pick(filtered[active]!); }
+              else if (e.key === 'Enter') { e.preventDefault(); pick(value); }
+              else if (e.key === 'Escape') setOpen(false);
+            }}
+            className={`${inputCls(invalid)} pr-8`}
+          />
+          <svg aria-hidden viewBox="0 0 16 16" className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </div>
+        <button type="button" onClick={onRefresh} disabled={!canFetch || loading} title={t.refreshModels} aria-label={t.refreshModels}
+          className="grid size-9 shrink-0 place-items-center rounded-[9px] bg-surface text-ink-2 shadow-btn transition-colors hover:bg-inset hover:text-ink focus-visible:shadow-[var(--shadow-btn),0_0_0_3px_var(--accent-ring)] disabled:opacity-40">
+          <Icon d={Ic.refresh} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
-      <p className="mt-1 text-[12px] text-zinc-500" data-model-status>
-        {!canFetch ? t.modelsNeedConfig
-          : loading ? t.modelsLoading
-          : error ? <span className="text-red-600">{t.modelsFailed(error)}</span>
-          : t.modelsCount(models.length)}
-      </p>
+      {(!canFetch || error) && (
+        <p className="mt-1.5 text-[12px] text-ink-3" data-model-status>
+          {!canFetch ? t.modelsNeedConfig : <span className="text-red" title={error}>{t.modelsFailed(t.errKind[errorKind(error)])}</span>}
+        </p>
+      )}
       {open && (models.length > 0 || loading) && (
-        <ul role="listbox" className="absolute left-0 right-0 top-[42px] z-10 max-h-64 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
-          {loading && <li className="px-3 py-2 text-[13px] text-zinc-400">{t.loading}</li>}
-          {!loading && filtered.length === 0 && <li className="px-3 py-2 text-[13px] text-zinc-400">{t.noModelMatch(value)}</li>}
+        <ul role="listbox" className="absolute left-0 right-11 top-[42px] z-20 max-h-72 overflow-y-auto rounded-[12px] bg-glass p-1 shadow-float [backdrop-filter:blur(20px)_saturate(1.3)]">
+          {loading && <li className="flex h-8 items-center px-2.5 text-[13px] text-ink-3">{t.loading}</li>}
           {!loading && filtered.map((m, i) => (
             <li key={m} role="option" aria-selected={m === value}
               onMouseDown={(e) => { e.preventDefault(); pick(m); }} onMouseEnter={() => setActive(i)}
-              className={`flex cursor-pointer items-center justify-between px-3 py-1.5 text-[13px] ${i === active ? 'bg-zinc-100' : ''}`}>
-              <span className="truncate">{m}</span>{m === value && <span className="text-zinc-500">✓</span>}
+              className={`flex h-8 cursor-pointer items-center justify-between rounded-[8px] px-2.5 text-[13px] text-ink ${m === value ? 'bg-accent-tint text-accent-ink' : i === active ? 'bg-hover' : ''}`}>
+              <span className="truncate">{m}</span>{m === value && <Icon d={Ic.check} className="size-3.5" />}
             </li>
           ))}
+          {!loading && <li className="flex h-8 items-center px-2.5 text-[12.5px] text-ink-3">{filtered.length === 0 ? t.noModelMatch(value) : t.customModelHint}</li>}
         </ul>
       )}
     </div>
