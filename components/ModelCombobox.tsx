@@ -1,3 +1,4 @@
+import { cn } from '@/lib/cn';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from './i18n';
 import { errorKind } from '@/lib/autosave';
@@ -41,7 +42,7 @@ export function ModelCombobox({ value, onChange, models, loading, error, onRefre
               else if (e.key === 'Enter') { e.preventDefault(); pick(value); }
               else if (e.key === 'Escape') setOpen(false);
             }}
-            className={`${inputCls(invalid)} pr-8`}
+            className={cn(inputCls(invalid), 'pr-8')}
           />
           <svg aria-hidden viewBox="0 0 16 16" className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </div>

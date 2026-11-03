@@ -18,7 +18,7 @@ import type { TestResult } from '@/lib/models';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/types';
 
 type Conn = { state: 'idle' } | { state: 'testing' } | { state: 'ok'; ms: number; reply: string } | { state: 'fail'; error: string };
-const SECTIONS = ['connection', 'instructions', 'skills', 'shortcuts', 'general'] as const;
+export const SECTIONS = ['general', 'connection', 'instructions', 'skills', 'shortcuts'] as const;
 const MAX_PROMPT = 4000;
 /** Mirror the theme into localStorage so public/theme-boot.js can apply it before first paint. */
 export const cacheTheme = (pref: Settings['theme']) => { try { localStorage.setItem('rp-theme', pref ?? 'system'); } catch {} };
@@ -38,7 +38,7 @@ function Options() {
   const [mError, setMError] = useState('');
   const [conn, setConn] = useState<Conn>({ state: 'idle' });
   const [showKey, setShowKey] = useState(false);
-  const [active, setActive] = useState<string>('connection');
+  const [active, setActive] = useState<string>('general');
   const [toast, setToast] = useState<{ msg: string; undo?: () => void; id: number } | null>(null);
   const saver = useMemo(() => createAutosaver<Settings>((v) => saveSettings(v), setStatus), []);
   const testId = useRef(0);
@@ -96,7 +96,9 @@ function Options() {
     const els = SECTIONS.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
     const io = new IntersectionObserver((es) => {
       const vis = es.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (vis) setActive(vis.target.id);
+      // the first card sits above the -10% root margin at scroll 0, so pin it there
+      if (window.scrollY < 40) setActive(SECTIONS[0]);
+      else if (vis) setActive(vis.target.id);
     }, { rootMargin: '-10% 0px -60% 0px' });
     els.forEach((e) => io.observe(e)); return () => io.disconnect();
   }, []);
@@ -107,8 +109,9 @@ function Options() {
     : conn.state === 'fail' ? { cls: 'bg-red-tint text-red', dot: 'bg-red', text: t.stFail }
     : { cls: 'bg-hover text-ink-2', dot: 'bg-ink-3', text: t.stUntested };
   const nav = [
+    { id: 'general', label: t.navGeneral, icon: Ic.gear },
     { id: 'connection', label: t.navConnection, icon: Ic.plug }, { id: 'instructions', label: t.navInstructions, icon: Ic.pen },
-    { id: 'skills', label: t.navSkills, icon: Ic.bolt }, { id: 'shortcuts', label: t.navShortcuts, icon: Ic.kbd }, { id: 'general', label: t.navGeneral, icon: Ic.gear },
+    { id: 'skills', label: t.navSkills, icon: Ic.bolt }, { id: 'shortcuts', label: t.navShortcuts, icon: Ic.kbd },
   ];
   const go = (id: string) => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
   const promptLen = (s.systemPrompt ?? '').length;
@@ -121,7 +124,7 @@ function Options() {
       {/* left nav (top tab bar under 860px) */}
       <nav aria-label={t.settingsShort} className="sticky top-0 z-20 flex shrink-0 border-line bg-page/90 backdrop-blur max-[859px]:border-b min-[860px]:h-screen min-[860px]:w-[220px] min-[860px]:flex-col min-[860px]:bg-transparent min-[860px]:backdrop-blur-none">
         <div className="hidden items-center gap-2.5 px-5 pb-4 pt-6 min-[860px]:flex">
-          <span aria-hidden className="size-[26px] rounded-[8px] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--accent)_75%,white),var(--accent))]" />
+          <img data-brand-logo src="/icon/128.png" alt="" aria-hidden width={26} height={26} className="size-[26px] shrink-0 rounded-[7px]" />
           <span className="text-[14px] font-[650]">Representer</span>
         </div>
         <ul className="flex gap-1 overflow-x-auto px-3 py-2 min-[860px]:flex-col min-[860px]:gap-0.5 min-[860px]:py-0 rp-noscrollbar">
@@ -152,6 +155,21 @@ function Options() {
           </div>
 
           <div className="space-y-6">
+            <Card id="general" data-general title={t.generalTitle}>
+              <div className="space-y-4">
+                <Field label={t.language} htmlFor="f-lang">
+                  <Select id="f-lang" data-lang-select aria-label={t.language} value={s.lang ?? 'auto'} onChange={(v) => update({ lang: v as Settings['lang'] }, 'now')}>
+                    <option value="auto">{t.langAuto}</option><option value="zh-CN">中文</option><option value="en">English</option>
+                  </Select>
+                </Field>
+                <Field label={t.appearance} htmlFor="f-theme">
+                  <Select id="f-theme" data-theme-select aria-label={t.appearance} value={s.theme ?? 'system'} onChange={(v) => { cacheTheme(v as Settings['theme']); update({ theme: v as Settings['theme'] }, 'now'); }}>
+                    <option value="system">{t.themeSystem}</option><option value="light">{t.themeLight}</option><option value="dark">{t.themeDark}</option>
+                  </Select>
+                </Field>
+              </div>
+            </Card>
+
             <Card id="connection" data-connection title={t.navConnection} desc={t.connDesc}
               action={<span data-conn-status className={cn('inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium', pill.cls)}><i className={cn('size-[7px] rounded-full', pill.dot)} />{pill.text}</span>}
               foot={<>
@@ -240,20 +258,6 @@ function Options() {
               {shortcut === '' && <p className="mt-1 text-[12px] text-amber">{t.scMissing}</p>}
             </Card>
 
-            <Card id="general" data-general title={t.generalTitle}>
-              <div className="space-y-4">
-                <Field label={t.language} htmlFor="f-lang">
-                  <Select id="f-lang" data-lang-select aria-label={t.language} value={s.lang ?? 'auto'} onChange={(v) => update({ lang: v as Settings['lang'] }, 'now')}>
-                    <option value="auto">{t.langAuto}</option><option value="zh-CN">中文</option><option value="en">English</option>
-                  </Select>
-                </Field>
-                <Field label={t.appearance} htmlFor="f-theme">
-                  <Select id="f-theme" data-theme-select aria-label={t.appearance} value={s.theme ?? 'system'} onChange={(v) => { cacheTheme(v as Settings['theme']); update({ theme: v as Settings['theme'] }, 'now'); }}>
-                    <option value="system">{t.themeSystem}</option><option value="light">{t.themeLight}</option><option value="dark">{t.themeDark}</option>
-                  </Select>
-                </Field>
-              </div>
-            </Card>
           </div>
         </div>
       </main>

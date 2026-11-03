@@ -98,9 +98,9 @@ export function SkillsManager({ toast = () => {} }: { toast?: Toast }) {
       <div className="space-y-4 px-5 py-4">
         <div className="grid items-center gap-x-4 gap-y-1.5 min-[860px]:grid-cols-[120px_1fr]">
           <span className="text-[13px] font-medium text-ink-2">{t.iconAndName}</span>
-          <div className="flex gap-2">
-            <input aria-label={t.icon} value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} placeholder="⚡" maxLength={4} className={cn(inputCls(), 'w-12 shrink-0 px-0 text-center')} />
-            <input autoFocus aria-label={t.name} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t.namePlaceholder} className={inputCls(!!err && !draft.name.trim())} />
+          <div className="flex min-w-0 gap-2">
+            <input aria-label={t.icon} value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} placeholder="⚡" maxLength={4} className={cn(inputCls(), 'w-12 shrink-0 px-0 text-center text-[16px]')} />
+            <input autoFocus aria-label={t.name} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t.namePlaceholder} className={cn(inputCls(!!err && !draft.name.trim()), 'min-w-0 flex-1')} />
           </div>
         </div>
         <div className="grid gap-x-4 gap-y-1.5 min-[860px]:grid-cols-[120px_1fr]">
