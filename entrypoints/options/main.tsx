@@ -6,6 +6,7 @@ import { rpc } from '@/lib/messages';
 import { isLocalUrl } from '@/lib/url';
 import { createAutosaver, errorKind, failedField, type SaveStatus } from '@/lib/autosave';
 import { cn } from '@/lib/cn';
+import { activeSection } from '@/lib/active-section';
 import { Button } from '@/components/bui/Button';
 import { useMock } from '@/lib/mock';
 import { mockText } from '@/lib/mock-text';
@@ -92,16 +93,32 @@ function Options() {
     chrome.commands.getAll((c) => setShortcut(c.find((x) => x.name === 'toggle-overlay')?.shortcut || ''));
     return off;
   }, []);
-  // nav highlight follows scroll
+  // nav highlight follows scroll. Recomputed from every section's current position (not from the observer's changed
+  // entries), also when sections grow or shrink (history list ↔ detail, search) or mount late. A nav click pins its
+  // section until the user scrolls by hand, so a short tail section isn't overridden when the page can't scroll further.
+  const pinned = useRef<string | null>(null);
   useEffect(() => {
-    const els = SECTIONS.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
-    const io = new IntersectionObserver((es) => {
-      const vis = es.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      // the first card sits above the -10% root margin at scroll 0, so pin it there
-      if (window.scrollY < 40) setActive(SECTIONS[0]);
-      else if (vis) setActive(vis.target.id);
-    }, { rootMargin: '-10% 0px -60% 0px' });
-    els.forEach((e) => io.observe(e)); return () => io.disconnect();
+    let frame = 0;
+    const compute = () => {
+      frame = 0;
+      if (pinned.current) return;
+      const boxes = SECTIONS.flatMap((id) => { const r = document.getElementById(id)?.getBoundingClientRect(); return r ? [{ id, top: r.top, bottom: r.bottom }] : []; });
+      const id = activeSection(boxes, { height: window.innerHeight, scrollY: window.scrollY, scrollHeight: document.documentElement.scrollHeight });
+      if (id) setActive(id);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(compute); };
+    const unpin = () => { pinned.current = null; schedule(); };
+    const ro = new ResizeObserver(schedule);
+    const main = document.querySelector('main'); if (main) ro.observe(main);
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) window.addEventListener(ev, unpin, { passive: true });
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame); ro.disconnect();
+      window.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule);
+      for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const) window.removeEventListener(ev, unpin);
+    };
   }, []);
 
   const bad = conn.state === 'fail' ? failedField(conn.error) : null;
@@ -115,7 +132,7 @@ function Options() {
     { id: 'skills', label: t.navSkills, icon: Ic.bolt }, { id: 'shortcuts', label: t.navShortcuts, icon: Ic.kbd },
     { id: 'history', label: t.navHistory, icon: Ic.clock },
   ];
-  const go = (id: string) => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
+  const go = (id: string) => { pinned.current = id; setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
   const promptLen = (s.systemPrompt ?? '').length;
   const mod = isMac ? '⌘' : 'Ctrl';
   const keys = (sc: string) => (isMac ? sc.replace(/[⌘⇧⌥⌃]/g, (m) => ` ${m} `) : sc.replace(/\+/g, ' ')).trim().split(/\s+/).filter(Boolean);
