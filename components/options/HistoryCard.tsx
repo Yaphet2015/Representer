@@ -88,7 +88,7 @@ export function HistoryDetail({ entry, onBack }: { entry: HistoryEntry; onBack: 
       </div>
       <p data-history-detached-note className="mt-2 text-[12px] leading-relaxed text-ink-3">{t.historyDetachedNote}</p>
       <div className="-mx-4 mt-3 border-t border-line pt-4">
-        <Overview detached summary={entry.summary} pageTitle={entry.title || undefined} host={entry.host || entry.url} />
+        <Overview summary={entry.summary} pageTitle={entry.title || undefined} host={entry.host || entry.url} />
       </div>
     </div>
   );

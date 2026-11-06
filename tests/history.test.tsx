@@ -108,7 +108,7 @@ describe('history detail (settings page)', () => {
     expect(bad).toContain('Full overview text here');
   });
   it('a detached overview never asks the model or links terms', () => {
-    const h = renderToStaticMarkup(<Overview detached summary={{ overview: 'Uses [[pstack]] here', sections: [] }} host="x.test" />);
+    const h = renderToStaticMarkup(<Overview summary={{ overview: 'Uses [[pstack]] here', sections: [] }} host="x.test" />);
     expect(h).not.toContain('data-term'); expect(h).not.toContain('data-regenerate'); expect(h).not.toContain('role="button"');
   });
 });

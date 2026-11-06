@@ -1,9 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { parseMarks, stripMarks } from '@/lib/highlight';
 import { cleanQuoteText } from '@/lib/parse';
-import { jumpToFingerprint, getLastMergedPage } from '@/lib/frame-bridge';
-import { TOP_FRAME_ID } from '@/lib/frames';
-import { jumpTo, liveIndex, resolveItem, type Anchors, type Item } from '@/lib/locate';
+import type { Anchors, Item } from '@/lib/locate';
 import { useT } from './i18n';
 import type { Summary } from '@/lib/types';
 import { Check, Refresh } from './Icons';
@@ -28,60 +26,43 @@ const bulletItem = (sec: Summary['sections'][number], j: number): Item => ({ anc
 const QUOTE_KEY = 'quote';
 const quoteItem = (summary: Summary): Item | null => (summary.quote ? { anchor: summary.quote.anchor, text: cleanQuoteText(summary.quote.text) } : null); // also tidies quotes cached by earlier versions
 
+/** How the overview reaches its page. Only the live panel has one (components/live-locator.ts); without it nothing links into a page. */
+export interface Locator {
+  /** keys of the items that resolve to a block of the page now */
+  locatable(items: [string, Item][], anchors: Anchors | undefined): Set<string>;
+  /** scroll to the item; 'stale' / 'missing' when it can't be found any more */
+  go(item: Item, anchors: Anchors | undefined): Promise<'ok' | 'stale' | 'missing'>;
+  /** call back when the page changes; returns a stop function */
+  observe(onChange: () => void): () => void;
+}
+
 /**
- * Which items resolve to a block of the live page. Re-checked after DOM changes (debounced), so content
+ * Which items resolve to a block of the live page. Re-checked after page changes (debounced), so content
  * that loads late or shifts the page doesn't break the links; clicks resolve again anyway.
  */
-function useLocatable(summary: Summary, anchors: Anchors | undefined, enabled = true) {
+function useLocatable(summary: Summary, anchors: Anchors | undefined, locator: Locator | undefined, enabled: boolean) {
   const [ok, setOk] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (!enabled) return; // still streaming: no anchors yet, and re-indexing the page on every chunk is wasted work
+    if (!enabled || !locator) return; // still streaming: no anchors yet, and re-indexing the page on every chunk is wasted work
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
       try {
-        const live = liveIndex(document);
-        const sources = getLastMergedPage()?.sources ?? [];
-        const next = new Set(itemsOf(summary).filter(([, it]) => {
-          const fp = it.anchor ? anchors?.[it.anchor] : undefined;
-          if (fp?.sk && fp.sk !== 'top') {
-            return sources.some((s) => s.sk === fp.sk);
-          }
-          if (fp?.f != null && fp.f !== TOP_FRAME_ID && !fp.sk) {
-            // legacy anchors without sk: transport id only
-            return sources.some((s) => s.frameId === fp.f);
-          }
-          return !!resolveItem(live, anchors, it);
-        }).map(([k]) => k));
+        const next = locator.locatable(itemsOf(summary), anchors);
         setOk((prev) => (prev.size === next.size && [...next].every((k) => prev.has(k)) ? prev : next));
       } catch (e) { console.warn('[representer] locate failed', e); }
     };
     check();
-    // our overlay is attached to <html>, outside <body>, so its own updates don't trigger this
-    const mo = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(check, 500); });
-    if (document.body) mo.observe(document.body, { childList: true, subtree: true, characterData: true });
-    return () => { mo.disconnect(); clearTimeout(timer); };
-  }, [summary, anchors, enabled]);
+    const stop = locator.observe(() => { clearTimeout(timer); timer = setTimeout(check, 500); });
+    return () => { stop(); clearTimeout(timer); };
+  }, [summary, anchors, locator, enabled]);
   return ok;
 }
 
-/** Jump target: resolves again on click, so it follows the page as it is now (or silently no-ops). Not a <button>, so terms inside can be buttons. */
-function Jump({ item, anchors, enabled, className, children, onLocateFail }: { item: Item; anchors?: Anchors; enabled: boolean; className: string; children: ReactNode; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
+/** Jump target: resolves again on click, so it follows the page as it is now. Not a <button>, so terms inside can be buttons. */
+function Jump({ item, anchors, locator, enabled, className, children, onLocateFail }: { item: Item; anchors?: Anchors; locator?: Locator; enabled: boolean; className: string; children: ReactNode; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
-  if (!enabled) return <span className={className}>{children}</span>;
-  const go = async () => {
-    const fp = item.anchor ? anchors?.[item.anchor] : undefined;
-    if (fp && ((fp.sk && fp.sk !== 'top') || (fp.f != null && fp.f !== TOP_FRAME_ID))) {
-      const r = await jumpToFingerprint(fp);
-      if (r !== 'ok') onLocateFail?.(r);
-      return;
-    }
-    const el = resolveItem(liveIndex(document), anchors, item);
-    if (el) jumpTo(el);
-    else if (fp) {
-      const r = await jumpToFingerprint(fp);
-      if (r !== 'ok') onLocateFail?.(r);
-    }
-  };
+  if (!enabled || !locator) return <span className={className}>{children}</span>;
+  const go = async () => { const r = await locator.go(item, anchors); if (r !== 'ok') onLocateFail?.(r); };
   return (
     <span
       role="button" tabIndex={0} aria-label={t.jumpToSource}
@@ -120,7 +101,7 @@ function Marked({ text, onAsk }: { text: string; onAsk?: (term: string) => void 
 }
 
 /** A line from the page, with where it is from; jumps to its block. Rendered only when there is one. */
-function Excerpt({ host, summary, anchors, enabled, pageTitle, onLocateFail }: { host: string; summary: Summary; anchors?: Anchors; enabled: boolean; pageTitle?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
+function Excerpt({ host, summary, anchors, locator, enabled, pageTitle, onLocateFail }: { host: string; summary: Summary; anchors?: Anchors; locator?: Locator; enabled: boolean; pageTitle?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
   const item = quoteItem(summary);
   if (!item) return null;
@@ -129,7 +110,7 @@ function Excerpt({ host, summary, anchors, enabled, pageTitle, onLocateFail }: {
       <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
         <span className="h-3 w-[3px] rounded-full bg-line-strong" /> {t.excerptTitle}
       </h3>
-      <Jump item={item} anchors={anchors} enabled={enabled} onLocateFail={onLocateFail} className="block">
+      <Jump item={item} anchors={anchors} locator={locator} enabled={enabled} onLocateFail={onLocateFail} className="block">
         <blockquote className="border-l-2 border-line-strong pl-3">
           <p className="text-[13px] leading-[1.7] text-ink-2">“{item.text}”</p>
           <footer className="mt-1.5 truncate text-right text-[11px] text-ink-3">— {t.excerptFrom(pageTitle ?? '', host)}</footer>
@@ -186,9 +167,10 @@ export const pageHost = () => (typeof location === 'undefined' ? '' : location.h
  * `streaming`: a partial overview still being written (lib/partial-json.ts). The first row then shows the status and
  * `children` (the cancel button) instead of the actions, nothing links to the page yet, and a caret marks the end.
  */
-export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children, frameNote, onLocateFail, detached = false }: { /** rendered away from its page (settings history): nothing links into the page */ detached?: boolean; startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode; frameNote?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children, frameNote, onLocateFail, locator }: { /** the live page's locator; without one (settings history) nothing links into a page */ locator?: Locator; startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode; frameNote?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
-  const ok = useLocatable(summary, anchors, !streaming && !detached);
+  const ok = useLocatable(summary, anchors, locator, !streaming);
+  const detached = !locator;
   const lastSec = summary.sections.length - 1;
   const caretAt = streaming ? (lastSec < 0 ? 'overview' : summary.sections[lastSec]!.bullets.length ? `${lastSec}:${summary.sections[lastSec]!.bullets.length - 1}` : `${lastSec}`) : '';
   return (
@@ -220,7 +202,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
           <section key={i} data-branch={i}>
             <h4 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold text-ink">
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c, boxShadow: `0 0 0 3px ${c}26` }} />
-              <Jump item={{ anchor: sec.anchor, quote: sec.quote, text: sec.title }} anchors={anchors} enabled={ok.has(`${i}`)} onLocateFail={onLocateFail} className="block">{stripMarks(sec.title)}{caretAt === `${i}` && <Caret />}</Jump>
+              <Jump item={{ anchor: sec.anchor, quote: sec.quote, text: sec.title }} anchors={anchors} locator={locator} enabled={ok.has(`${i}`)} onLocateFail={onLocateFail} className="block">{stripMarks(sec.title)}{caretAt === `${i}` && <Caret />}</Jump>
             </h4>
             <ul className="relative ml-[4.5px]">
               {sec.bullets.map((b, j) => {
@@ -232,7 +214,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
                     {/* curved elbow from the trunk into this node */}
                     <span className="absolute left-0 top-0 h-[13px] w-4 rounded-bl-[10px] border-b-[1.5px] border-l-[1.5px]" style={{ borderColor: c, opacity: 0.55 }} />
                     <span className="absolute left-[15px] top-[10px] h-[7px] w-[7px] rounded-full" style={{ background: c }} />
-                    <Jump item={bulletItem(sec, j)} anchors={anchors} enabled={ok.has(`${i}:${j}`)} onLocateFail={onLocateFail} className="block text-[13px] leading-[1.6] text-ink"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
+                    <Jump item={bulletItem(sec, j)} anchors={anchors} locator={locator} enabled={ok.has(`${i}:${j}`)} onLocateFail={onLocateFail} className="block text-[13px] leading-[1.6] text-ink"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
                   </li>
                 );
               })}
@@ -240,7 +222,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
           </section>
         );
       })}
-      <Excerpt host={host} summary={summary} anchors={anchors} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} onLocateFail={onLocateFail} />
+      <Excerpt host={host} summary={summary} anchors={anchors} locator={locator} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} onLocateFail={onLocateFail} />
     </div>
   );
 }

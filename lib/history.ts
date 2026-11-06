@@ -65,7 +65,8 @@ export async function listHistory(src: HistorySource, now = Date.now()): Promise
   const entries: HistoryEntry[] = [];
   for (const [k, v] of Object.entries(all)) {
     if (!k.startsWith(SUM_PREFIX)) continue;
-    const e = toEntry(k, v, now);
+    let e: HistoryEntry | null = null;
+    try { e = toEntry(k, v, now); } catch { /* an odd stored value must not take the page down */ }
     if (e) entries.push(e); else skipped++;
   }
   return { entries: entries.sort(byNewest), skipped };
@@ -85,12 +86,13 @@ export function searchHistory(entries: HistoryEntry[], query: string): HistoryEn
 export const chromeHistorySource: HistorySource = {
   async readSummaries() {
     const area = chrome.storage.local as chrome.storage.LocalStorageArea & { getKeys?: () => Promise<string[]> };
+    let keys: string[] | null = null;
     if (typeof area.getKeys === 'function') {
-      const keys = (await area.getKeys()).filter((k) => k.startsWith(SUM_PREFIX));
-      return keys.length ? await area.get(keys) : {};
+      try { const all = await area.getKeys(); if (Array.isArray(all)) keys = all.filter((k) => typeof k === 'string' && k.startsWith(SUM_PREFIX)); }
+      catch { keys = null; } // getKeys present but failing: fall back to reading everything
     }
-    const all = await area.get(null);
-    return Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith(SUM_PREFIX)));
+    const raw = keys ? (keys.length ? await area.get(keys) : {}) : await area.get(null);
+    return Object.fromEntries(Object.entries(raw ?? {}).filter(([k]) => k.startsWith(SUM_PREFIX))); // nothing else leaves here
   },
 };
 
