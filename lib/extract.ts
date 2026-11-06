@@ -19,10 +19,28 @@ export function scrubSensitiveFields(root: ParentNode): void {
     if ('defaultValue' in el) try { (el as HTMLInputElement).defaultValue = ''; } catch { /* */ }
     while (el.firstChild) el.removeChild(el.firstChild);
   }
-  for (const el of root.querySelectorAll('[contenteditable], [contenteditable=""], [contenteditable="true"]')) {
+  // Only regions the reader can type into. contenteditable="false" is read-only page text (rich-text article
+  // views render their body that way) and must be kept; an editable root clears everything inside it.
+  for (const el of root.querySelectorAll('[contenteditable]')) {
+    if (!isEditable(el) || (el.parentElement && isEditable(el.parentElement))) continue;
     el.textContent = '';
     el.removeAttribute('contenteditable');
   }
+}
+
+/**
+ * HTML's contenteditable state: "", "true" and "plaintext-only" (ASCII case-insensitive) make an element
+ * editable, "false" makes it read-only, and anything else (or no attribute) inherits from the parent.
+ */
+export function isEditable(el: Element): boolean {
+  for (let e: Element | null = el; e; e = e.parentElement) {
+    const v = e.getAttribute('contenteditable');
+    if (v === null) continue;
+    const s = v.toLowerCase();
+    if (s === '' || s === 'true' || s === 'plaintext-only') return true;
+    if (s === 'false') return false;
+  }
+  return false;
 }
 
 /**
