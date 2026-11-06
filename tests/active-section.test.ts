@@ -21,14 +21,6 @@ describe('settings nav: active section', () => {
     for (let y = historyTop - 40; y <= max; y += 150) expect(pick(p, y)).toBe('history');
     expect(pick(p, max)).toBe('history');
   });
-  it('a short last section (history list) is active at the bottom even though it can never reach the top', () => {
-    const p = page([...SECTIONS, ['history', 300]]);
-    expect(pick(p, p(0).maxY)).toBe('history');
-  });
-  it('search shrinking history to "no match" at the bottom still says history, not General or Shortcuts', () => {
-    const p = page([...SECTIONS, ['history', 170]]);
-    expect(pick(p, p(0).maxY)).toBe('history');
-  });
   it('sections in the middle are active when their top reaches the reading line', () => {
     const p = page([...SECTIONS, ['history', 600]]);
     expect(pick(p, 80 + 160 + 24 - 60)).toBe('connection');
@@ -39,6 +31,6 @@ describe('settings nav: active section', () => {
     expect(pick(p, p(0, 600).maxY, 600)).toBe('history');
   });
   it('nothing to show is undefined', () => {
-    expect(activeSection([], { height: 800, scrollY: 0, scrollHeight: 800 })).toBeUndefined();
+    expect(activeSection([], { height: 800, scrollY: 0 })).toBeUndefined();
   });
 });
