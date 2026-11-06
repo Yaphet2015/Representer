@@ -77,6 +77,7 @@ export function findQuote(hayKey: string, quote: string, from = 0): [number, num
 const skipped = (el: Element | null): boolean => {
   for (let e = el; e; e = e.parentElement) {
     if (SKIP_TAGS.has(e.tagName.toUpperCase()) || e.localName === OVERLAY_TAG || e.hasAttribute('hidden') || e.getAttribute('aria-hidden') === 'true') return true;
+    if ((e as HTMLElement).isContentEditable) return true;
   }
   return false;
 };
@@ -98,7 +99,7 @@ export function listBlocks(doc: Document): Element[] {
   return cands.filter((el) => !(parents.has(el) && BOX_TAGS.has(el.tagName.toUpperCase())) && !skipped(el) && keyOf(el.textContent ?? '').length >= 2 && visible(el));
 }
 
-export interface Fingerprint { /** hash of the letters/digits */ h: string; /** their count */ n: number; /** leading text */ head: string; /** position among the page blocks */ o: number }
+export interface Fingerprint { /** hash of the letters/digits */ h: string; /** their count */ n: number; /** leading text */ head: string; /** local ordinal among blocks in that document */ o: number; /** @deprecated volatile Chrome frameId — transport hint only; identity is `sk` */ f?: number; /** stable source key (`top` / `embed:N`); survives frameId churn */ sk?: string; /** source docSig at extract time — live extract must match or locate is stale */ ds?: string; /** extraction generation (debug) */ g?: string }
 export type Anchors = Record<string, Fingerprint>;
 
 export function fingerprint(el: Element, o: number): Fingerprint {
@@ -166,6 +167,8 @@ const closest = (list: number[], o: number) => list.reduce((a, b) => (Math.abs(b
 export function pageShift(live: LiveIndex, anchors: Anchors | undefined): number {
   const d: number[] = [];
   for (const fp of Object.values(anchors ?? {})) {
+    // Only top-document fingerprints may influence top-page shift; embed local ordinals must not.
+    if (fp.sk && fp.sk !== 'top') continue;
     const same = live.byHash.get(fp.h);
     if (same?.length === 1) d.push(same[0]! - fp.o);
   }
@@ -186,6 +189,7 @@ export function resolveFingerprint(live: LiveIndex, fp: Fingerprint, shift = 0):
   const i = bestMatch(live.texts, fp.head, 0.7);
   return i >= 0 ? live.blocks[i]! : null;
 }
+
 
 const shifts = new WeakMap<LiveIndex, Map<Anchors | undefined, number>>();
 const shiftOf = (live: LiveIndex, anchors: Anchors | undefined) => {
@@ -209,19 +213,28 @@ export function resolveItem(live: LiveIndex, anchors: Anchors | undefined, item:
 }
 
 /** Smooth-scroll a block into view (centered) and flash a fading highlight on it. */
-export function jumpTo(el: Element) {
-  const win = el.ownerDocument.defaultView ?? window;
-  const reduce = win.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  const tall = el.getBoundingClientRect().height > win.innerHeight * 0.7;
-  el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: tall ? 'start' : 'center', inline: 'nearest' });
+/** Highlight a block; `scroll: false` when an ancestor frame does the scrolling (cross-frame jump). */
+export function jumpTo(el: Element, opts: { scroll?: boolean } = {}) {
+  const win = el.ownerDocument.defaultView ?? (typeof window !== 'undefined' ? window : undefined);
+  const reduce = !!win?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let tall = false;
+  try {
+    const h = win?.innerHeight ?? 800;
+    tall = typeof el.getBoundingClientRect === 'function' && el.getBoundingClientRect().height > h * 0.7;
+  } catch { /* */ }
+  if (opts.scroll !== false) try {
+    (el as HTMLElement).scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: tall ? 'start' : 'center', inline: 'nearest' });
+  } catch { /* jsdom/linkedom */ }
   // Paint-only properties: no layout shift, and the page's own styles come back when it ends.
   const on = 'rgba(255, 196, 0, 0.32)', off = 'rgba(255, 196, 0, 0)';
-  el.animate?.(
-    [
-      { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px' },
-      { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px', offset: 0.35 },
-      { backgroundColor: off, boxShadow: `0 0 0 6px ${off}`, borderRadius: '4px' },
-    ],
-    { duration: reduce ? 900 : 1800, delay: reduce ? 0 : 250, easing: 'ease-out' },
-  );
+  try {
+    el.animate?.(
+      [
+        { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px' },
+        { backgroundColor: on, boxShadow: `0 0 0 6px ${on}`, borderRadius: '4px', offset: 0.35 },
+        { backgroundColor: off, boxShadow: `0 0 0 6px ${off}`, borderRadius: '4px' },
+      ],
+      { duration: reduce ? 900 : 1800, delay: reduce ? 0 : 250, easing: 'ease-out' },
+    );
+  } catch { /* */ }
 }

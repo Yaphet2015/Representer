@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { parseMarks, stripMarks } from '@/lib/highlight';
 import { cleanQuoteText } from '@/lib/parse';
+import { jumpToFingerprint, getLastMergedPage } from '@/lib/frame-bridge';
+import { TOP_FRAME_ID } from '@/lib/frames';
 import { jumpTo, liveIndex, resolveItem, type Anchors, type Item } from '@/lib/locate';
 import { useT } from './i18n';
 import type { Summary } from '@/lib/types';
@@ -38,7 +40,18 @@ function useLocatable(summary: Summary, anchors: Anchors | undefined, enabled = 
     const check = () => {
       try {
         const live = liveIndex(document);
-        const next = new Set(itemsOf(summary).filter(([, it]) => resolveItem(live, anchors, it)).map(([k]) => k));
+        const sources = getLastMergedPage()?.sources ?? [];
+        const next = new Set(itemsOf(summary).filter(([, it]) => {
+          const fp = it.anchor ? anchors?.[it.anchor] : undefined;
+          if (fp?.sk && fp.sk !== 'top') {
+            return sources.some((s) => s.sk === fp.sk);
+          }
+          if (fp?.f != null && fp.f !== TOP_FRAME_ID && !fp.sk) {
+            // legacy anchors without sk: transport id only
+            return sources.some((s) => s.frameId === fp.f);
+          }
+          return !!resolveItem(live, anchors, it);
+        }).map(([k]) => k));
         setOk((prev) => (prev.size === next.size && [...next].every((k) => prev.has(k)) ? prev : next));
       } catch (e) { console.warn('[representer] locate failed', e); }
     };
@@ -52,15 +65,28 @@ function useLocatable(summary: Summary, anchors: Anchors | undefined, enabled = 
 }
 
 /** Jump target: resolves again on click, so it follows the page as it is now (or silently no-ops). Not a <button>, so terms inside can be buttons. */
-function Jump({ item, anchors, enabled, className, children }: { item: Item; anchors?: Anchors; enabled: boolean; className: string; children: ReactNode }) {
+function Jump({ item, anchors, enabled, className, children, onLocateFail }: { item: Item; anchors?: Anchors; enabled: boolean; className: string; children: ReactNode; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
   if (!enabled) return <span className={className}>{children}</span>;
-  const go = () => { const el = resolveItem(liveIndex(document), anchors, item); if (el) jumpTo(el); };
+  const go = async () => {
+    const fp = item.anchor ? anchors?.[item.anchor] : undefined;
+    if (fp && ((fp.sk && fp.sk !== 'top') || (fp.f != null && fp.f !== TOP_FRAME_ID))) {
+      const r = await jumpToFingerprint(fp);
+      if (r !== 'ok') onLocateFail?.(r);
+      return;
+    }
+    const el = resolveItem(liveIndex(document), anchors, item);
+    if (el) jumpTo(el);
+    else if (fp) {
+      const r = await jumpToFingerprint(fp);
+      if (r !== 'ok') onLocateFail?.(r);
+    }
+  };
   return (
     <span
-      role="button" tabIndex={0} title={t.jumpToSource}
-      onClick={go}
-      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); go(); } }}
+      role="button" tabIndex={0} aria-label={t.jumpToSource}
+      onClick={() => { void go(); }}
+      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); void go(); } }}
       className={`${className} -mx-1.5 cursor-pointer rounded-[6px] px-1.5 text-left transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring`}
     >
       {children}
@@ -94,7 +120,7 @@ function Marked({ text, onAsk }: { text: string; onAsk?: (term: string) => void 
 }
 
 /** A line from the page, with where it is from; jumps to its block. Rendered only when there is one. */
-function Excerpt({ summary, anchors, enabled, pageTitle }: { summary: Summary; anchors?: Anchors; enabled: boolean; pageTitle?: string }) {
+function Excerpt({ summary, anchors, enabled, pageTitle, onLocateFail }: { summary: Summary; anchors?: Anchors; enabled: boolean; pageTitle?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
   const item = quoteItem(summary);
   if (!item) return null;
@@ -104,7 +130,7 @@ function Excerpt({ summary, anchors, enabled, pageTitle }: { summary: Summary; a
       <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
         <span className="h-3 w-[3px] rounded-full bg-line-strong" /> {t.excerptTitle}
       </h3>
-      <Jump item={item} anchors={anchors} enabled={enabled} className="block">
+      <Jump item={item} anchors={anchors} enabled={enabled} onLocateFail={onLocateFail} className="block">
         <blockquote className="border-l-2 border-line-strong pl-3">
           <p className="text-[13px] leading-[1.7] text-ink-2">“{item.text}”</p>
           <footer className="mt-1.5 truncate text-right text-[11px] text-ink-3">— {t.excerptFrom(pageTitle ?? '', site)}</footer>
@@ -161,7 +187,7 @@ export const pageHost = () => (typeof location === 'undefined' ? '' : location.h
  * `streaming`: a partial overview still being written (lib/partial-json.ts). The first row then shows the status and
  * `children` (the cancel button) instead of the actions, nothing links to the page yet, and a caret marks the end.
  */
-export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children }: { startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode }) {
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children, frameNote, onLocateFail }: { startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode; frameNote?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
   const ok = useLocatable(summary, anchors, !streaming);
   const lastSec = summary.sections.length - 1;
@@ -184,6 +210,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
             </SourceRow>
           )}
         </div>
+        {frameNote && !streaming && <p data-frame-note className="mb-2 text-[11.5px] leading-[1.5] text-ink-3">{frameNote}</p>}
         <p className="text-[13.5px] leading-[1.7] text-ink">
           <Marked text={summary.overview} onAsk={streaming ? undefined : onAsk} />{caretAt === 'overview' && <Caret />}
         </p>
@@ -194,7 +221,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
           <section key={i} data-branch={i}>
             <h4 className="mb-1.5 flex items-center gap-2 text-[14px] font-bold text-ink">
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c, boxShadow: `0 0 0 3px ${c}26` }} />
-              <Jump item={{ anchor: sec.anchor, quote: sec.quote, text: sec.title }} anchors={anchors} enabled={ok.has(`${i}`)} className="block">{stripMarks(sec.title)}{caretAt === `${i}` && <Caret />}</Jump>
+              <Jump item={{ anchor: sec.anchor, quote: sec.quote, text: sec.title }} anchors={anchors} enabled={ok.has(`${i}`)} onLocateFail={onLocateFail} className="block">{stripMarks(sec.title)}{caretAt === `${i}` && <Caret />}</Jump>
             </h4>
             <ul className="relative ml-[4.5px]">
               {sec.bullets.map((b, j) => {
@@ -206,7 +233,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
                     {/* curved elbow from the trunk into this node */}
                     <span className="absolute left-0 top-0 h-[13px] w-4 rounded-bl-[10px] border-b-[1.5px] border-l-[1.5px]" style={{ borderColor: c, opacity: 0.55 }} />
                     <span className="absolute left-[15px] top-[10px] h-[7px] w-[7px] rounded-full" style={{ background: c }} />
-                    <Jump item={bulletItem(sec, j)} anchors={anchors} enabled={ok.has(`${i}:${j}`)} className="block text-[13px] leading-[1.6] text-ink"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
+                    <Jump item={bulletItem(sec, j)} anchors={anchors} enabled={ok.has(`${i}:${j}`)} onLocateFail={onLocateFail} className="block text-[13px] leading-[1.6] text-ink"><Marked text={b} onAsk={streaming ? undefined : onAsk} />{caretAt === `${i}:${j}` && <Caret />}</Jump>
                   </li>
                 );
               })}
@@ -214,7 +241,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
           </section>
         );
       })}
-      <Excerpt summary={summary} anchors={anchors} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} />
+      <Excerpt summary={summary} anchors={anchors} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} onLocateFail={onLocateFail} />
     </div>
   );
 }
