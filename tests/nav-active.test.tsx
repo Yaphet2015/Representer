@@ -9,6 +9,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SectionTail, useActiveSection } from '../components/options/useActiveSection';
+import { HistoryCard } from '../components/options/HistoryCard';
+import type { HistorySource } from '../lib/history';
 
 const IDS = ['general', 'connection', 'instructions', 'skills', 'shortcuts', 'history'] as const;
 const GAP = 24, START = 80, PAD = 48;
@@ -18,7 +20,7 @@ const GAP = 24, START = 80, PAD = 48;
  * data-section-tail is laid out at least one viewport tall (what its CSS min-height does). scrollY is clamped to
  * the scrollable range exactly as a browser clamps it when the page shrinks, and every clamp fires `scroll`.
  */
-function layout() {
+function layout(real = false) {
   const h: Record<string, number> = { general: 160, connection: 420, instructions: 260, skills: 380, shortcuts: 260, history: 300 };
   const view = { height: 1000, y: 0 };
   const boxes = () => {
@@ -26,6 +28,7 @@ function layout() {
     for (const id of IDS) {
       const el = document.getElementById(id)!;
       const tail = el.closest('[data-section-tail]') ? view.height : 0;
+      if (id === 'history' && real) h.history = el.querySelector('[data-history-back]') ? 3000 : 300; // detail vs list
       out[id] = { top: y, bottom: y + h[id]! }; y += Math.max(h[id]!, tail) + GAP;
     }
     return { out, scrollHeight: y - GAP + PAD };
@@ -42,10 +45,26 @@ function layout() {
   Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, get: () => boxes().scrollHeight });
   /** Content changes size (list → detail, search narrowing): the browser reflows, clamps the scroll, observers fire. */
   const resize = (id: string, px: number) => { h[id] = px; setY(view.y); roFire(); };
-  return { resize, scrollTo: setY, view, maxY };
+  const reflow = () => { setY(view.y); roFire(); };
+  return { resize, reflow, scrollTo: setY, view, maxY, top: (id: string) => boxes().out[id]!.top - view.y };
 }
 
 let roFire = () => {};
+const NOW = Date.now();
+const fakeSource: HistorySource = { async readSummaries() {
+  const r = (title: string, ago: number) => ({ summary: { overview: title + ' overview', sections: [{ title: 'Part', icon: 'list', bullets: ['b'] }] }, content: 'x', title, createdAt: NOW - ago });
+  return { 'sum:https://a.example/1': r('Alpha', 2000), 'sum:https://b.example/2': r('Bravo', 1000) };
+} };
+function RealHarness() {
+  const [active, go] = useActiveSection(IDS);
+  return (
+    <main>
+      <nav>{IDS.map((id) => <a key={id} data-nav={id} aria-current={active === id ? 'true' : undefined} onClick={() => go(id)}>{id}</a>)}</nav>
+      {IDS.slice(0, -1).map((id) => <section key={id} id={id} />)}
+      <SectionTail><HistoryCard source={fakeSource} subscribe={() => () => {}} /></SectionTail>
+    </main>
+  );
+}
 let root: Root;
 function Harness() {
   const [active, go] = useActiveSection(IDS);
@@ -113,5 +132,43 @@ describe('settings nav: History stays highlighted while it is used', () => {
     act(() => root.unmount()); expect(live.size).toBe(0);
     (window as any).addEventListener = add; (window as any).removeEventListener = rm;
     root = createRoot(document.getElementById('r')!);
+  });
+});
+
+describe('History: back to list is a transition to the list top', () => {
+  it('read a long detail to its end, Back to list: History top in view, focus on the row, nav History', async () => {
+    act(() => root.unmount()); document.body.innerHTML = '<div id="r"></div>';
+    vi.stubGlobal('location', { hostname: 'ext-id' });
+    let focused: HTMLElement | null = null; let focusOpts: unknown; // linkedom has no focus model: record the call
+    (window.HTMLElement.prototype as any).focus = function (this: HTMLElement, o?: unknown) { focused = this; focusOpts = o; };
+    root = createRoot(document.getElementById('r')!);
+    await act(() => root.render(<RealHarness />)); await frame();
+    const R = layout(true); await frame();
+    await click('[data-nav=history]'); expect(current()).toBe('history');
+    await click('[data-history-item]');
+    R.reflow(); await frame();
+    await user('wheel'); R.scrollTo(R.maxY()); await frame(); // read to the end of the detail
+    expect(current()).toBe('history');
+    await click('[data-history-back]'); R.reflow(); await frame();
+    expect(document.querySelector('[data-history-back]')).toBeNull();
+    expect(R.top('history')).toBe(0); // list starts at the top of the viewport, not wherever the detail ended
+    expect(current()).toBe('history');
+    const f = focused as HTMLElement | null;
+    expect(f?.hasAttribute('data-history-item')).toBe(true);
+    expect(f?.textContent).toContain('Bravo'); // the row that was opened (newest first)
+    expect(focusOpts).toEqual({ preventScroll: true });
+    delete (window.HTMLElement.prototype as any).focus;
+  });
+  it('a storage refresh or the first load does not scroll or move focus', async () => {
+    act(() => root.unmount()); document.body.innerHTML = '<div id="r"></div>';
+    vi.stubGlobal('location', { hostname: 'ext-id' });
+    root = createRoot(document.getElementById('r')!);
+    await act(() => root.render(<RealHarness />)); await frame();
+    let focusCalls = 0; (window.HTMLElement.prototype as any).focus = () => { focusCalls++; };
+    const R = layout(true); R.scrollTo(400); await frame();
+    let into = 0; (document.getElementById('history') as any).scrollIntoView = () => { into++; };
+    await act(() => root.render(<RealHarness />)); await frame(); // re-render / refresh with the list already shown
+    expect(R.view.y).toBe(400); expect(into).toBe(0); expect(focusCalls).toBe(0);
+    delete (window.HTMLElement.prototype as any).focus;
   });
 });

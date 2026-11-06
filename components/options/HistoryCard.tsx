@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { chromeHistorySource, listHistory, onHistoryChange, searchHistory, type HistoryEntry, type HistoryList, type HistorySource } from '@/lib/history';
 import { useT } from '@/components/i18n';
 import { Overview } from '@/components/Overview';
@@ -15,6 +15,19 @@ export function HistoryCard({ source = chromeHistorySource, subscribe = onHistor
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [query, setQuery] = useState('');
   const [openUrl, setOpenUrl] = useState<string | null>(null);
+  // Back to list is a page transition: the list starts at the top of History, with focus on the row that was open.
+  // Without this the scroll stays where the (much longer) detail ended and focus falls to <body>.
+  const body = useRef<HTMLDivElement>(null);
+  const returnTo = useRef<string | null>(null);
+  const back = () => { returnTo.current = openUrl; setOpenUrl(null); };
+  useLayoutEffect(() => {
+    const url = returnTo.current; if (url === null || openUrl !== null || !body.current) return;
+    returnTo.current = null;
+    const rows = [...body.current.querySelectorAll<HTMLElement>('[data-history-item]')];
+    const target = rows.find((r) => r.dataset.historyUrl === url) ?? body.current.querySelector<HTMLElement>('[data-history-search]');
+    body.current.closest('[data-history]')?.scrollIntoView({ block: 'start' });
+    target?.focus({ preventScroll: true });
+  }, [openUrl]);
 
   const seq = useRef(0);
   const refresh = useCallback(async () => {
@@ -31,13 +44,14 @@ export function HistoryCard({ source = chromeHistorySource, subscribe = onHistor
   return (
     <Card id="history" data-history title={t.historyTitle} desc={t.historyDesc}
       action={load.state === 'ready' && entries.length > 0 ? <span className="text-[12px] text-ink-3">{t.historyCount(entries.length)}</span> : undefined}>
+      <div ref={body}>
       {load.state === 'loading' && <p className="text-[13px] text-ink-3">…</p>}
       {load.state === 'error' && (
         <div role="alert" className="flex items-center justify-between gap-3 text-[13px] text-red">
           {t.historyLoadFailed}<Button variant="secondary" size="sm" onClick={() => { setLoad({ state: 'loading' }); void refresh(); }}>{t.retry}</Button>
         </div>
       )}
-      {load.state === 'ready' && (open ? <HistoryDetail entry={open} onBack={() => setOpenUrl(null)} /> : (
+      {load.state === 'ready' && (open ? <HistoryDetail entry={open} onBack={back} /> : (
         entries.length === 0 ? <p data-history-empty className="text-[13px] leading-relaxed text-ink-2">{t.historyEmpty}</p> : (
           <div className="space-y-3">
             <Input type="search" data-history-search aria-label={t.historySearch} placeholder={t.historySearch} value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -45,7 +59,7 @@ export function HistoryCard({ source = chromeHistorySource, subscribe = onHistor
               <ul data-history-list className="max-h-[420px] overflow-y-auto rounded-[10px] shadow-[inset_0_0_0_1px_var(--line)] [&>li+li]:border-t [&>li+li]:border-line">
                 {shown.map((e) => (
                   <li key={e.url}>
-                    <button type="button" data-history-item onClick={() => setOpenUrl(e.url)}
+                    <button type="button" data-history-item data-history-url={e.url} onClick={() => setOpenUrl(e.url)}
                       className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-hover focus-visible:shadow-[inset_0_0_0_2px_var(--accent-ring)] focus-visible:outline-none">
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13.5px] font-medium text-ink">{e.title || t.historyUntitled}</span>
@@ -64,6 +78,7 @@ export function HistoryCard({ source = chromeHistorySource, subscribe = onHistor
           </div>
         )
       ))}
+      </div>
     </Card>
   );
 }

@@ -25,6 +25,8 @@ beforeEach(() => {
   vi.stubGlobal('location', { hostname: 'ext-id' });
   const no = (what: string) => () => { throw new Error('history must not ' + what); };
   vi.stubGlobal('chrome', { runtime: { sendMessage: no('message the background (model / extraction)'), connect: no('open a port') }, storage: { local: { set: no('write'), remove: no('remove'), clear: no('clear') } } });
+  const proto = (window as any).HTMLElement.prototype; // linkedom has no layout or focus model
+  proto.scrollIntoView ??= () => {}; proto.focus ??= () => {};
   host = document.getElementById('r') as unknown as HTMLElement;
   root = createRoot(host);
 });
