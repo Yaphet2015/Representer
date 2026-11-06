@@ -9,6 +9,7 @@ import type { FrameNotice } from '@/lib/frames';
 import { bus } from './bus';
 import { Chat } from './Chat';
 import { Overview, pageHost } from './Overview';
+import { liveLocator } from './live-locator';
 import { ErrorView, NoOverview } from './EmptyStates';
 import { Capsule, CloseButton } from './Capsule';
 import { Skeleton } from './Skeleton';
@@ -222,7 +223,7 @@ export function App() {
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
                 {loading && partial && (
-                  <Overview streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
+                  <Overview locator={liveLocator} streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
                     <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>
                   </Overview>
                 )}
@@ -243,7 +244,7 @@ export function App() {
                 )}
                 {!loading && summary && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-                    <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} host={pageHost()}
+                    <Overview locator={liveLocator} fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} host={pageHost()}
                       frameNote={frameNote} onLocateFail={(kind) => { setFlash(kind === 'stale' ? t.sourceStale : t.sourceMissing); setTimeout(() => setFlash(''), 2500); }}
                       onRegenerate={() => run(true)} regenerated={!!flash}
                       onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); }} />
