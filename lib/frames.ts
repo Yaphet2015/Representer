@@ -310,20 +310,31 @@ export function mergeFrameParts(parts: FramePart[], notices: FrameNotice[] = [],
   };
 }
 
+/**
+ * The document a frame shows, without its #fragment. Frames such as HF Spaces rewrite their fragment to the
+ * section in view while the reader scrolls; the text sent to the model (and hashed for the summary cache)
+ * must not change with it. A hash router that really shows another page changes the extracted text instead.
+ * `FrameSource.href` keeps the full URL for locating.
+ */
+export function docUrl(href: string): string {
+  const i = href.indexOf('#');
+  return i < 0 ? href : href.slice(0, i);
+}
+
 function modelPreface(sources: FrameSource[], notices: FrameNotice[]): string {
   const embeds = sources.filter((s) => s.role === 'embed');
   const lines: string[] = [];
   if (embeds.length === 1 && !sources.some((s) => s.role === 'top')) {
-    lines.push(`[Source: main text was read from an embedded document at ${embeds[0]!.href}]`);
+    lines.push(`[Source: main text was read from an embedded document at ${docUrl(embeds[0]!.href)}]`);
   } else if (embeds.length) {
-    lines.push(`[Source: page text includes the top document and ${embeds.length} embedded document(s): ${embeds.map((e) => e.href).join(', ')}]`);
+    lines.push(`[Source: page text includes the top document and ${embeds.length} embedded document(s): ${embeds.map((e) => docUrl(e.href)).join(', ')}]`);
   }
   for (const n of notices) {
-    if (n.kind === 'nested_unread') lines.push(`[Note: ${n.count} nested content frame(s) inside ${n.href} were not read]`);
-    if (n.kind === 'inaccessible') lines.push(`[Note: embedded frame at ${n.href} was not accessible]`);
-    if (n.kind === 'not_loaded') lines.push(`[Note: embedded frame at ${n.href} had not finished loading]`);
-    if (n.kind === 'timeout') lines.push(`[Note: timed out waiting for embedded frame at ${n.href}]`);
-    if (n.kind === 'unsupported_depth') lines.push(`[Note: deeper nested frames under ${n.href} are not supported yet]`);
+    if (n.kind === 'nested_unread') lines.push(`[Note: ${n.count} nested content frame(s) inside ${docUrl(n.href)} were not read]`);
+    if (n.kind === 'inaccessible') lines.push(`[Note: embedded frame at ${docUrl(n.href)} was not accessible]`);
+    if (n.kind === 'not_loaded') lines.push(`[Note: embedded frame at ${docUrl(n.href)} had not finished loading]`);
+    if (n.kind === 'timeout') lines.push(`[Note: timed out waiting for embedded frame at ${docUrl(n.href)}]`);
+    if (n.kind === 'unsupported_depth') lines.push(`[Note: deeper nested frames under ${docUrl(n.href)} are not supported yet]`);
   }
   return lines.join('\n');
 }
