@@ -28,7 +28,7 @@ function layout(real = false) {
     for (const id of IDS) {
       const el = document.getElementById(id)!;
       const tail = el.closest('[data-section-tail]') ? view.height : 0;
-      if (id === 'history' && real) h.history = el.querySelector('[data-history-back]') ? 3000 : 300; // detail vs list
+      if (id === 'history' && real) h.history = el.textContent?.includes('Alpha overview') ? 3000 : 300; // a longer overview
       out[id] = { top: y, bottom: y + h[id]! }; y += Math.max(h[id]!, tail) + GAP;
     }
     return { out, scrollHeight: y - GAP + PAD };
@@ -135,40 +135,17 @@ describe('settings nav: History stays highlighted while it is used', () => {
   });
 });
 
-describe('History: back to list is a transition to the list top', () => {
-  it('read a long detail to its end, Back to list: History top in view, focus on the row, nav History', async () => {
+describe('History two panes keep the nav on History', () => {
+  it('nav → History, click another row (detail grows), search with no match: History', async () => {
     act(() => root.unmount()); document.body.innerHTML = '<div id="r"></div>';
     vi.stubGlobal('location', { hostname: 'ext-id' });
-    let focused: HTMLElement | null = null; let focusOpts: unknown; // linkedom has no focus model: record the call
-    (window.HTMLElement.prototype as any).focus = function (this: HTMLElement, o?: unknown) { focused = this; focusOpts = o; };
     root = createRoot(document.getElementById('r')!);
     await act(() => root.render(<RealHarness />)); await frame();
     const R = layout(true); await frame();
     await click('[data-nav=history]'); expect(current()).toBe('history');
-    await click('[data-history-item]');
-    R.reflow(); await frame();
-    await user('wheel'); R.scrollTo(R.maxY()); await frame(); // read to the end of the detail
+    expect(document.querySelector('[data-history-pane]')?.textContent).toContain('Bravo overview');
+    await click('[data-history-item]:not([aria-pressed="true"])'); R.reflow(); await frame();
+    expect(document.querySelector('[data-history-pane]')?.textContent).toContain('Alpha overview');
     expect(current()).toBe('history');
-    await click('[data-history-back]'); R.reflow(); await frame();
-    expect(document.querySelector('[data-history-back]')).toBeNull();
-    expect(R.top('history')).toBe(0); // list starts at the top of the viewport, not wherever the detail ended
-    expect(current()).toBe('history');
-    const f = focused as HTMLElement | null;
-    expect(f?.hasAttribute('data-history-item')).toBe(true);
-    expect(f?.textContent).toContain('Bravo'); // the row that was opened (newest first)
-    expect(focusOpts).toEqual({ preventScroll: true });
-    delete (window.HTMLElement.prototype as any).focus;
-  });
-  it('a storage refresh or the first load does not scroll or move focus', async () => {
-    act(() => root.unmount()); document.body.innerHTML = '<div id="r"></div>';
-    vi.stubGlobal('location', { hostname: 'ext-id' });
-    root = createRoot(document.getElementById('r')!);
-    await act(() => root.render(<RealHarness />)); await frame();
-    let focusCalls = 0; (window.HTMLElement.prototype as any).focus = () => { focusCalls++; };
-    const R = layout(true); R.scrollTo(400); await frame();
-    let into = 0; (document.getElementById('history') as any).scrollIntoView = () => { into++; };
-    await act(() => root.render(<RealHarness />)); await frame(); // re-render / refresh with the list already shown
-    expect(R.view.y).toBe(400); expect(into).toBe(0); expect(focusCalls).toBe(0);
-    delete (window.HTMLElement.prototype as any).focus;
   });
 });

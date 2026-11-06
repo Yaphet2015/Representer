@@ -133,7 +133,7 @@ function Options() {
 
       <main className="relative min-w-0 flex-1">
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[220px]" style={{ background: 'linear-gradient(to bottom, color-mix(in srgb, var(--accent) 10%, transparent), transparent)' }} />
-        <div className="relative mx-auto max-w-[760px] px-6 pb-12 pt-8 min-[860px]:px-12">
+        <div className="relative mx-auto max-w-[760px] px-6 pb-6 pt-8 min-[860px]:px-12">
           <div className="mb-6 flex items-center justify-between gap-4">
             <h1 className="text-[22px] font-[650] leading-8">{t.settingsShort}</h1>
             <span data-save-status role="status" className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
@@ -248,8 +248,11 @@ function Options() {
               {shortcut === '' && <p className="mt-1 text-[12px] text-amber">{t.scMissing}</p>}
             </Card>
 
-            <SectionTail><HistoryCard /></SectionTail>
           </div>
+        </div>
+        {/* History is master-detail, so it alone gets a wider column; the forms above keep their reading width */}
+        <div className="relative mx-auto max-w-[1100px] px-6 pb-12 min-[860px]:px-12">
+          <SectionTail><HistoryCard /></SectionTail>
         </div>
       </main>
 

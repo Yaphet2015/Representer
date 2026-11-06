@@ -88,7 +88,7 @@ describe('overview history (lib/history)', () => {
 
 describe('history detail (settings page)', () => {
   const entry = toEntry('sum:https://www.example.com/post', { summary: sum('Full overview text here', 'First part'), title: 'A very long title '.repeat(10), createdAt: NOW - 3 * TTL_MS }, NOW)!;
-  const html = renderToStaticMarkup(<HistoryDetail entry={entry} onBack={() => {}} />);
+  const html = renderToStaticMarkup(<HistoryDetail entry={entry} />);
   it('shows the whole overview with its sections and excerpt, attributed to the page site, not the extension', () => {
     expect(html).toContain('Full overview text here');
     expect(html).toContain('First part');
@@ -103,7 +103,7 @@ describe('history detail (settings page)', () => {
   });
   it('marks a record past 24 h without hiding it, and an unsafe URL gets no link', () => {
     expect(['zh-CN', 'en'].some((l) => html.includes(messages(l as 'en').historyStale))).toBe(true);
-    const bad = renderToStaticMarkup(<HistoryDetail entry={{ ...entry, url: 'javascript:alert(1)', href: null }} onBack={() => {}} />);
+    const bad = renderToStaticMarkup(<HistoryDetail entry={{ ...entry, url: 'javascript:alert(1)', href: null }} />);
     expect(bad).not.toContain('<a ');
     expect(bad).toContain('Full overview text here');
   });

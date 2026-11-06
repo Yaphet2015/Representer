@@ -25,8 +25,6 @@ beforeEach(() => {
   vi.stubGlobal('location', { hostname: 'ext-id' });
   const no = (what: string) => () => { throw new Error('history must not ' + what); };
   vi.stubGlobal('chrome', { runtime: { sendMessage: no('message the background (model / extraction)'), connect: no('open a port') }, storage: { local: { set: no('write'), remove: no('remove'), clear: no('clear') } } });
-  const proto = (window as any).HTMLElement.prototype; // linkedom has no layout or focus model
-  proto.scrollIntoView ??= () => {}; proto.focus ??= () => {};
   host = document.getElementById('r') as unknown as HTMLElement;
   root = createRoot(host);
 });
@@ -52,26 +50,35 @@ const typeIn = async (el: any, value: string) => {
 };
 
 describe('settings history (interactive)', () => {
-  it('lists newest first, opens a record, goes back; search narrows, shows no-match and recovers', async () => {
+  it('two panes: newest selected by default, a row click switches the detail, list stays; search keeps them in step', async () => {
     const s = fakeStore({ 'sum:https://a.test/x': rec('Alpha page', 'Alpha overview', 3 * 86400e3), 'sum:https://b.test/y': rec('Bravo page', 'Bravo overview', 1000), settings: { apiKey: 'SYNTHETIC-KEY' } });
     await act(async () => root.render(<HistoryCard source={s.source} subscribe={s.subscribe} />)); await settle();
-    expect(qa('[data-history-item]').map((b) => b.textContent)).toEqual([expect.stringContaining('Bravo page'), expect.stringContaining('Alpha page')]);
+    const rows = () => qa('[data-history-item]'); const pane = () => q('[data-history-pane]').textContent as string;
+    const pressed = () => rows().filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+    expect(rows().map((b) => b.textContent)).toEqual([expect.stringContaining('Bravo page'), expect.stringContaining('Alpha page')]);
     expect(host.innerHTML).not.toContain('SYNTHETIC-KEY'); expect(host.innerHTML).not.toContain('PAGE-TEXT');
+    expect(pressed()).toEqual([expect.stringContaining('Bravo page')]); expect(pane()).toContain('Bravo overview');
 
-    await click(qa('[data-history-item]')[1]);
-    expect(q('[data-history-detail]')).toBeTruthy();
-    expect(host.textContent).toContain('Alpha overview'); expect(host.textContent).toContain('Part one');
-    expect(q('[role="button"]')).toBeNull(); // no fake locate targets
+    await click(rows()[1]);
+    expect(rows()).toHaveLength(2); // the list stays
+    expect(pressed()).toEqual([expect.stringContaining('Alpha page')]);
+    expect(pane()).toContain('Alpha overview'); expect(pane()).toContain('Part one'); expect(pane()).not.toContain('Bravo overview');
+    expect(q('[data-history-pane] [role="button"]')).toBeNull(); // no fake locate targets
     expect(q('[data-history-open]').getAttribute('href')).toBe('https://a.test/x');
-    await click(q('[data-history-back]'));
-    expect(qa('[data-history-item]')).toHaveLength(2);
+    expect(q('[data-history-back]')).toBeNull();
 
-    await typeIn(q('[data-history-search]'), 'zzz-nothing');
-    expect(q('[data-history-nomatch]')).toBeTruthy(); expect(qa('[data-history-item]')).toHaveLength(0);
-    await typeIn(q('[data-history-search]'), 'bravo');
-    expect(qa('[data-history-item]').map((b) => b.textContent)).toEqual([expect.stringContaining('Bravo page')]);
-    await typeIn(q('[data-history-search]'), '');
-    expect(qa('[data-history-item]')).toHaveLength(2);
+    await typeIn(q('[data-history-search]'), 'zzz-nothing'); // nothing shown: the pane must not keep the old overview
+    expect(q('[data-history-nomatch]')).toBeTruthy(); expect(rows()).toHaveLength(0);
+    expect(q('[data-history-detail]')).toBeNull(); expect(q('[data-history-pane-empty]')).toBeTruthy();
+    await typeIn(q('[data-history-search]'), 'bravo'); // picked row filtered out: the first shown is selected
+    expect(pressed()).toEqual([expect.stringContaining('Bravo page')]); expect(pane()).toContain('Bravo overview');
+    await typeIn(q('[data-history-search]'), ''); // the picked row is back: it is selected again
+    expect(pressed()).toEqual([expect.stringContaining('Alpha page')]); expect(pane()).toContain('Alpha overview');
+
+    delete s.data['sum:https://a.test/x']; await act(async () => s.fire()); await settle(); // picked row deleted elsewhere
+    expect(rows()).toHaveLength(1); expect(pressed()).toEqual([expect.stringContaining('Bravo page')]); expect(pane()).toContain('Bravo overview');
+    s.data['sum:https://b.test/y'] = rec('Bravo page', 'Bravo v2', 10); await act(async () => s.fire()); await settle(); // re-summarized
+    expect(pane()).toContain('Bravo v2'); expect(pane()).not.toContain('Bravo overview');
   });
 
   it('follows storage changes, shows the empty state, and unsubscribes on unmount', async () => {
