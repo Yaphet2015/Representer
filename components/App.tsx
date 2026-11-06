@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLang, useT } from './i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { extractPage } from '@/lib/extract';
+import { extractPageWithFrames, type MergedPage } from '@/lib/frame-bridge';
 import { normalizeUrl } from '@/lib/url';
 import type { Summary } from '@/lib/types';
 import type { Anchors } from '@/lib/locate';
+import type { FrameNotice } from '@/lib/frames';
 import { bus } from './bus';
 import { Chat } from './Chat';
 import { Overview, pageHost } from './Overview';
@@ -73,13 +74,34 @@ export function App() {
   /** bumped by every run and cancel, so a run that was cancelled or replaced never touches the UI */
   const runId = useRef(0);
   const chatBusy = useRef(false);
-  const pageRef = useRef<{ url: string; page: ReturnType<typeof extractPage> } | null>(null);
-  /** the page's text for chat when there is no summary; extracted once per page */
-  const getPage = useCallback(() => {
+  const pageRef = useRef<{ url: string; page: MergedPage } | null>(null);
+  const [frameNote, setFrameNote] = useState('');
+  const noticeText = useCallback((notices: FrameNotice[]) => {
+    if (!notices.length) return '';
+    const nested = notices.filter((n) => n.kind === 'nested_unread');
+    if (nested.length) return t.frameNestedUnread(nested.reduce((s, n) => s + (n.kind === 'nested_unread' ? n.count : 0), 0));
+    return t.framePartialNote;
+  }, [t]);
+  const failureReasons = useCallback((notices: FrameNotice[]) => {
+    const lines: string[] = [];
+    for (const n of notices) {
+      if (n.kind === 'not_loaded') lines.push(t.frameNotLoaded(n.href));
+      else if (n.kind === 'inaccessible') lines.push(t.frameInaccessible(n.href));
+      else if (n.kind === 'timeout') lines.push(t.frameTimeout(n.href));
+      else if (n.kind === 'nested_unread') lines.push(t.frameNestedUnread(n.count));
+    }
+    return lines.join('\n');
+  }, [t]);
+  /** the page's text for chat when there is no summary; extracted once per page (includes iframe docs) */
+  const getPage = useCallback(async () => {
     const u = normalizeUrl(location.href);
-    if (pageRef.current?.url !== u) pageRef.current = { url: u, page: extractPage() };
+    if (pageRef.current?.url !== u) {
+      const page = await extractPageWithFrames();
+      pageRef.current = { url: u, page };
+      setFrameNote(noticeText(page.notices));
+    }
     return pageRef.current.page;
-  }, []);
+  }, [noticeText]);
   /** text a clicked term puts into the chat input (not sent) */
   const [draft, setDraft] = useState<{ text: string; id: number } | null>(null);
   const { width, resizing, handleProps } = useResizableWidth();
@@ -105,14 +127,22 @@ export function App() {
     if (force) { setSummary(null); setTab('overview'); }
     try {
       pageRef.current = null;
-      const page = getPage();
+      const page = await getPage();
+      if (stale()) return;
+      if (!page.content.replace(/\[Source:[^\]]*\]/g, '').replace(/\[Note:[^\]]*\]/g, '').trim()) {
+        const detail = failureReasons(page.notices);
+        setError(detail || t.noReadableContent);
+        setFrameNote(noticeText(page.notices));
+        return;
+      }
       if (!force) {
         // the cache is by URL and page text: a page whose text changed is summarized again
         const c = await rpc('getCached', { url: u, hash: pageHash(page.content) });
         if (stale()) return;
-        if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setChatKey((k) => k + 1); return; }
+        if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setFrameNote(noticeText(page.notices)); setChatKey((k) => k + 1); return; }
       }
       setTitle(page.title);
+      setFrameNote(noticeText(page.notices));
       const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
       const st = streamSummary({ url: u, title: page.title, content: page.content, anchors: page.anchors, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d), (st) => { if (!stale()) setStatus(st); });
       stream.current = st;
@@ -130,7 +160,7 @@ export function App() {
     } catch (e: any) {
       if (!stale()) setError(String(e.message ?? e)); // a stream that fails midway drops its partial overview
     } finally { if (!stale()) { setLoading(false); setPartial(null); } }
-  }, [getPage]);
+  }, [getPage, noticeText, failureReasons, t.noReadableContent]);
 
   /** Stop the running summary: the request is aborted in the background and nothing is cached. */
   const cancel = useCallback(async () => {
@@ -208,9 +238,13 @@ export function App() {
                 )}
                 {!loading && error && <ErrorView error={error} retry={() => run(true)} onChat={() => setTab('chat')} />}
                 {!loading && !error && !summary && cancelled && <NoOverview onStart={() => run(true)} onChat={() => setTab('chat')} />}
+                {flash && (flash === t.sourceStale || flash === t.sourceMissing) && (
+                  <p data-flash className="px-4 pb-1 text-[11.5px] text-ink-3">{flash}</p>
+                )}
                 {!loading && summary && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
                     <Overview fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} summary={summary} anchors={anchors} pageTitle={title} host={pageHost()}
+                      frameNote={frameNote} onLocateFail={(kind) => { setFlash(kind === 'stale' ? t.sourceStale : t.sourceMissing); setTimeout(() => setFlash(''), 2500); }}
                       onRegenerate={() => run(true)} regenerated={!!flash}
                       onAsk={(term) => { setDraft({ text: t.askTerm(term), id: Date.now() }); setTab('chat'); }} />
                   </motion.div>

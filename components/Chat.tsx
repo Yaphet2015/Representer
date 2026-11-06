@@ -13,7 +13,7 @@ import { messageMarkdown } from '@/lib/copy';
 import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => { title: string; content: string }; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
+export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => Promise<{ title: string; content: string }>; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [input, setInput] = useState('');
@@ -65,9 +65,12 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
         setBusy(false); port.disconnect();
       }
     });
-    let page: ChatRequest['page'];
-    if (!hasSummary) { const p = getPage(); page = { title: p.title, content: p.content }; }
-    port.postMessage({ url, text, sid: targetSid, label, ...(page ? { page } : {}) } satisfies ChatRequest);
+    void (async () => {
+      let page: ChatRequest['page'];
+      if (!hasSummary) { const p = await getPage(); page = { title: p.title, content: p.content }; }
+      try { port.postMessage({ url, text, sid: targetSid, label, ...(page ? { page } : {}) } satisfies ChatRequest); }
+      catch (e: any) { patch((s) => s + (s ? '\n\n' : '') + '⚠️ ' + String(e?.message ?? e)); setBusy(false); }
+    })();
   };
 
   const fork = async (firstMessage = '') => {

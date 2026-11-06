@@ -3,6 +3,8 @@ import '@/assets/tailwind.css';
 import { App } from '@/components/App';
 import { LangProvider } from '@/components/i18n';
 import { bus } from '@/components/bus';
+import { installFrameWorker } from '@/lib/frame-bridge';
+import { installDiag } from '@/lib/diag-cs';
 import { rpc, TOGGLE } from '@/lib/messages';
 
 /*
@@ -56,8 +58,16 @@ function noTranslate(host: HTMLElement, container: HTMLElement, shadow: ShadowRo
 
 export default defineContentScript({
   matches: ['<all_urls>'],
+  // Cross-origin embeds (e.g. HF Spaces on *.hf.space) only yield their DOM when we inject here too.
+  // UI still mounts only in the top frame; child frames answer extract/locate messages.
+  allFrames: true,
   cssInjectionMode: 'ui',
   async main(ctx) {
+    installFrameWorker();
+    const isTop = window === window.top;
+    if (!isTop) return;
+    if (import.meta.env.VITE_RP_DIAG === '1') installDiag(); // dev diagnostics build only
+
     let ui: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let last = 0;
     const toggle = () => {

@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="UTF-8" /><title>Representer diagnostics (dev build)</title><meta name="manifest.open_in_tab" content="true" />
+<style>
+body{font:13px/1.45 system-ui,sans-serif;margin:16px;color:#222}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:4px 6px;vertical-align:top;text-align:left}
+.bad{background:#fde2e2}.mono{font-family:ui-monospace,monospace;font-size:12px}pre{white-space:pre-wrap;background:#f6f6f6;padding:8px}
+button{cursor:pointer}#build{font-weight:600}
+</style></head>
+<body>
+<h1>Representer diagnostics <span class="mono">(dev build only)</span></h1>
+<p>Extension build: <span id="build"></span> · content script build: <span id="csbuild">–</span></p>
+<p><label>Tab <select id="tab"></select></label> <button id="refresh">Reload tab list</button> <button id="extract">Extract</button> <button id="download" disabled>Download JSON</button></p>
+<p><label>Filter text <input id="filter" placeholder="e.g. 90%" /></label> <label>Jump to id <input id="jid" size="6" placeholder="p59" /></label> <button id="jump">Jump</button></p>
+<h3>Last jump</h3><pre id="trace">–</pre>
+<h3>Sources / notices / marker report</h3><pre id="meta">–</pre>
+<h3>Blocks</h3><table><thead><tr><th>id</th><th>source</th><th>o</th><th>flag</th><th>text the model sees under this id</th><th>DOM block head (fingerprint)</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<script type="module" src="./main.ts"></script>
+</body></html>

@@ -86,3 +86,13 @@ describe('Overview source row', () => {
   });
 });
 
+
+describe('Overview jump affordance', () => {
+  it('keeps an accessible name but no hover title for jump-to-source', () => {
+    const s: Summary = { overview: 'o', sections: [{ title: 'Section A', icon: 'list', bullets: ['b'], anchor: 'p1' }] };
+    const h = renderToStaticMarkup(<Overview summary={s} anchors={{ p1: { h: 'x', n: 20, head: 'Section', o: 0 } }} />);
+    // Jump is enabled only when locatable; without a live DOM it stays a span — either way no title tooltip.
+    expect(h).not.toContain('title="Show in page"');
+    expect(h).not.toContain('title="在网页中定位"');
+  });
+});
