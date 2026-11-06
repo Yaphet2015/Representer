@@ -11,6 +11,7 @@ import { useMock } from '@/lib/mock';
 import { mockText } from '@/lib/mock-text';
 import { ModelCombobox } from '@/components/ModelCombobox';
 import { SkillsManager } from '@/components/SkillsManager';
+import { HistoryCard } from '@/components/options/HistoryCard';
 import { LangProvider, useLang, useT } from '@/components/i18n';
 import { useTheme } from '@/components/theme';
 import { Card, Field, Icon, Ic, Input, Kbd, Select, Switch, Tag } from '@/components/options/ui';
@@ -18,7 +19,7 @@ import type { TestResult } from '@/lib/models';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/types';
 
 type Conn = { state: 'idle' } | { state: 'testing' } | { state: 'ok'; ms: number; reply: string } | { state: 'fail'; error: string };
-export const SECTIONS = ['general', 'connection', 'instructions', 'skills', 'shortcuts'] as const;
+export const SECTIONS = ['general', 'connection', 'instructions', 'skills', 'shortcuts', 'history'] as const;
 const MAX_PROMPT = 4000;
 /** Mirror the theme into localStorage so public/theme-boot.js can apply it before first paint. */
 export const cacheTheme = (pref: Settings['theme']) => { try { localStorage.setItem('rp-theme', pref ?? 'system'); } catch {} };
@@ -112,6 +113,7 @@ function Options() {
     { id: 'general', label: t.navGeneral, icon: Ic.gear },
     { id: 'connection', label: t.navConnection, icon: Ic.plug }, { id: 'instructions', label: t.navInstructions, icon: Ic.pen },
     { id: 'skills', label: t.navSkills, icon: Ic.bolt }, { id: 'shortcuts', label: t.navShortcuts, icon: Ic.kbd },
+    { id: 'history', label: t.navHistory, icon: Ic.clock },
   ];
   const go = (id: string) => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
   const promptLen = (s.systemPrompt ?? '').length;
@@ -258,6 +260,7 @@ function Options() {
               {shortcut === '' && <p className="mt-1 text-[12px] text-amber">{t.scMissing}</p>}
             </Card>
 
+            <HistoryCard />
           </div>
         </div>
       </main>

@@ -120,11 +120,10 @@ function Marked({ text, onAsk }: { text: string; onAsk?: (term: string) => void 
 }
 
 /** A line from the page, with where it is from; jumps to its block. Rendered only when there is one. */
-function Excerpt({ summary, anchors, enabled, pageTitle, onLocateFail }: { summary: Summary; anchors?: Anchors; enabled: boolean; pageTitle?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
+function Excerpt({ host, summary, anchors, enabled, pageTitle, onLocateFail }: { host: string; summary: Summary; anchors?: Anchors; enabled: boolean; pageTitle?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
   const item = quoteItem(summary);
   if (!item) return null;
-  const site = location.hostname.replace(/^www\./, '');
   return (
     <section data-excerpt>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
@@ -133,7 +132,7 @@ function Excerpt({ summary, anchors, enabled, pageTitle, onLocateFail }: { summa
       <Jump item={item} anchors={anchors} enabled={enabled} onLocateFail={onLocateFail} className="block">
         <blockquote className="border-l-2 border-line-strong pl-3">
           <p className="text-[13px] leading-[1.7] text-ink-2">“{item.text}”</p>
-          <footer className="mt-1.5 truncate text-right text-[11px] text-ink-3">— {t.excerptFrom(pageTitle ?? '', site)}</footer>
+          <footer className="mt-1.5 truncate text-right text-[11px] text-ink-3">— {t.excerptFrom(pageTitle ?? '', host)}</footer>
         </blockquote>
       </Jump>
     </section>
@@ -141,9 +140,9 @@ function Excerpt({ summary, anchors, enabled, pageTitle, onLocateFail }: { summa
 }
 
 /** The page's own icon: a declared one, else /favicon.ico; a letter tile if neither loads. */
-export function Favicon({ host }: { host: string }) {
+export function Favicon({ host, letterOnly = false }: { host: string; letterOnly?: boolean }) {
   const [src, setSrc] = useState<string | null>(() => {
-    if (typeof document === 'undefined') return null;
+    if (letterOnly || typeof document === 'undefined') return null;
     const link = document.querySelector<HTMLLinkElement>('link[rel~="icon"][href]');
     return link?.href || `${location.origin}/favicon.ico`;
   });
@@ -155,11 +154,11 @@ export function Favicon({ host }: { host: string }) {
  * The overview's first row, sitting under the floating capsule: where the page is from, whether this came from the
  * cache, and the two actions (re-summarize, copy). There is no "Overview" title: the capsule already says it.
  */
-export function SourceRow({ host, fromCache, cachedAt, onRegenerate, regenerated, children }: { host: string; fromCache?: boolean; cachedAt?: number; onRegenerate?: () => void; regenerated?: boolean; children?: ReactNode }) {
+export function SourceRow({ host, fromCache, cachedAt, onRegenerate, regenerated, children, detached }: { host: string; fromCache?: boolean; cachedAt?: number; onRegenerate?: () => void; regenerated?: boolean; children?: ReactNode; detached?: boolean }) {
   const t = useT();
   return (
     <div data-source-row className="flex h-6 items-center gap-1.5">
-      <Favicon host={host} />
+      <Favicon host={host} letterOnly={detached} />
       <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-3">{host}</span>
       {fromCache && (
         <span data-from-cache aria-label={t.cached}
@@ -187,9 +186,9 @@ export const pageHost = () => (typeof location === 'undefined' ? '' : location.h
  * `streaming`: a partial overview still being written (lib/partial-json.ts). The first row then shows the status and
  * `children` (the cancel button) instead of the actions, nothing links to the page yet, and a caret marks the end.
  */
-export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children, frameNote, onLocateFail }: { startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode; frameNote?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
+export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false, cachedAt, onRegenerate, regenerated, host = pageHost(), streaming = false, startedAt, statusLabel, children, frameNote, onLocateFail, detached = false }: { /** rendered away from its page (settings history): nothing links into the page */ detached?: boolean; startedAt?: number; statusLabel?: ReactNode; fromCache?: boolean; cachedAt?: number; summary: Summary; anchors?: Anchors; pageTitle?: string; onAsk?: (term: string) => void; onRegenerate?: () => void; regenerated?: boolean; host?: string; streaming?: boolean; children?: ReactNode; frameNote?: string; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
-  const ok = useLocatable(summary, anchors, !streaming);
+  const ok = useLocatable(summary, anchors, !streaming && !detached);
   const lastSec = summary.sections.length - 1;
   const caretAt = streaming ? (lastSec < 0 ? 'overview' : summary.sections[lastSec]!.bullets.length ? `${lastSec}:${summary.sections[lastSec]!.bullets.length - 1}` : `${lastSec}`) : '';
   return (
@@ -202,7 +201,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
               {children}
             </div>
           ) : (
-            <SourceRow host={host} fromCache={fromCache} cachedAt={cachedAt} onRegenerate={onRegenerate} regenerated={regenerated}>
+            <SourceRow host={host} detached={detached} fromCache={fromCache} cachedAt={cachedAt} onRegenerate={onRegenerate} regenerated={regenerated}>
               <CopyButton
                 className="shrink-0" tip="left" label={t.copyOverview}
                 getText={() => overviewMarkdown(summary, { pageTitle, excerptTitle: t.excerptTitle, excerptFrom: t.excerptFrom(pageTitle ?? '', host) })}
@@ -241,7 +240,7 @@ export function Overview({ summary, anchors, pageTitle, onAsk, fromCache = false
           </section>
         );
       })}
-      <Excerpt summary={summary} anchors={anchors} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} onLocateFail={onLocateFail} />
+      <Excerpt host={host} summary={summary} anchors={anchors} enabled={ok.has(QUOTE_KEY)} pageTitle={pageTitle} onLocateFail={onLocateFail} />
     </div>
   );
 }
