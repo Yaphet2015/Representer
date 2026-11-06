@@ -67,9 +67,10 @@ export function HistoryCard({ source = chromeHistorySource, subscribe = onHistor
             )}
             {load.list.skipped > 0 && <p className="text-[12px] text-ink-3">{t.historySkipped(load.list.skipped)}</p>}
           </div>
-          <div data-history-pane tabIndex={0} aria-label={selected ? selected.title || t.historyUntitled : t.historyNoMatch}
+          {/* keyed by record: another record gets a fresh pane, so it opens at the top; a refresh of the same one keeps its scroll */}
+          <div key={selected?.url ?? ''} data-history-pane tabIndex={0} aria-label={selected ? selected.title || t.historyUntitled : t.historyNoMatch}
             className="min-h-0 min-w-0 rounded-[10px] px-4 py-4 shadow-[inset_0_0_0_1px_var(--line)] focus-visible:shadow-[inset_0_0_0_2px_var(--accent-ring)] focus-visible:outline-none min-[1180px]:overflow-y-auto min-[1180px]:overscroll-contain">
-            {selected ? <HistoryDetail key={selected.url} entry={selected} /> : <p data-history-pane-empty className="text-[13px] text-ink-3">{t.historyNoMatch}</p>}
+            {selected ? <HistoryDetail entry={selected} /> : <p data-history-pane-empty className="text-[13px] text-ink-3">{t.historyNoMatch}</p>}
           </div>
         </div>
       ))}

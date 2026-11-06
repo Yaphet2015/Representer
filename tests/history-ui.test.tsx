@@ -81,6 +81,23 @@ describe('settings history (interactive)', () => {
     expect(pane()).toContain('Bravo v2'); expect(pane()).not.toContain('Bravo overview');
   });
 
+  it('switching records shows the new overview from the top; the list scroll and a same-record refresh are kept', async () => {
+    // linkedom has no layout: give elements the browser's scrollTop semantics (per element, starts at 0)
+    const tops = new WeakMap<object, number>();
+    Object.defineProperty((window as any).Element.prototype, 'scrollTop', { configurable: true, get() { return tops.get(this) ?? 0; }, set(v: number) { tops.set(this, v); } });
+    const s = fakeStore({ 'sum:https://a.test/x': rec('Alpha page', 'Alpha overview', 2000), 'sum:https://b.test/y': rec('Bravo page', 'Bravo overview', 1000) });
+    await act(async () => root.render(<HistoryCard source={s.source} subscribe={s.subscribe} />)); await settle();
+    q('[data-history-pane]').scrollTop = 900; q('[data-history-list]').scrollTop = 40; // read Bravo to its end
+    s.data['sum:https://b.test/y'] = rec('Bravo page', 'Bravo v2', 10); await act(async () => s.fire()); await settle();
+    expect(q('[data-history-pane]').textContent).toContain('Bravo v2');
+    expect(q('[data-history-pane]').scrollTop).toBe(900); // same record refreshed: reading position kept
+    await click(qa('[data-history-item]')[1]);
+    expect(q('[data-history-pane]').textContent).toContain('Alpha overview');
+    expect(q('[data-history-pane]').scrollTop).toBe(0); // another record: from the top
+    expect(q('[data-history-list]').scrollTop).toBe(40); // the list is untouched
+    delete (window as any).Element.prototype.scrollTop;
+  });
+
   it('follows storage changes, shows the empty state, and unsubscribes on unmount', async () => {
     const s = fakeStore({});
     await act(async () => root.render(<HistoryCard source={s.source} subscribe={s.subscribe} />)); await settle();
