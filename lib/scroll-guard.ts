@@ -1,6 +1,12 @@
 /**
- * Keep scrolling inside the panel from reaching the host page (scroll chaining). CSS overscroll-behavior covers the
- * scroll containers; this covers everything else (areas that don't scroll at all, e.g. the capsule or the composer).
+ * Keep scrolling inside the panel from reaching the host page. Two separate leaks:
+ * - scroll chaining (the browser's default action): CSS overscroll-behavior covers the scroll containers; the
+ *   preventDefault below covers everything else (areas that don't scroll at all, e.g. the capsule or the composer).
+ * - page scripts: wheel and touch events are composed, so they bubble out of the shadow root to the page. A
+ *   page-level smooth scroller (Lenis, Locomotive, GSAP Observer…) listening on window cancels every wheel it sees
+ *   and scrolls the page itself, so the panel's own lists could not scroll at all. Events that start in the
+ *   panel stop at its root; stopPropagation leaves the native scrolling of the panel untouched. (Listeners inside the
+ *   panel still run; React's own root sits above this element, so the panel uses no React onWheel / onTouch* props.)
  */
 export type ScrollBox = {
   scrollTop: number; scrollHeight: number; clientHeight: number;
@@ -54,14 +60,17 @@ function chainOf(e: Event, root: Element): ScrollBox[] {
 /** Attach the wheel / touch guard to the panel root. Returns the cleanup. */
 export function guardScroll(root: HTMLElement): () => void {
   const onWheel = (e: WheelEvent) => {
-    if (e.ctrlKey) return; // pinch-zoom
+    if (e.ctrlKey) return; // pinch / browser zoom: not a scroll, left to the browser and page as usual
+    e.stopPropagation();
     const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
     const dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
     if (shouldBlockScroll(chainOf(e, root), dx, dy)) e.preventDefault();
   };
   let last: { x: number; y: number } | null = null;
-  const onStart = (e: TouchEvent) => { const t = e.touches[0]; last = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; };
+  const isolate = (e: Event) => { e.stopPropagation(); };
+  const onStart = (e: TouchEvent) => { e.stopPropagation(); const t = e.touches[0]; last = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; };
   const onMove = (e: TouchEvent) => {
+    e.stopPropagation();
     const t = e.touches[0];
     if (!last || !t || e.touches.length !== 1) return;
     const dx = last.x - t.clientX, dy = last.y - t.clientY; // finger up = content down
@@ -71,5 +80,10 @@ export function guardScroll(root: HTMLElement): () => void {
   root.addEventListener('wheel', onWheel, { passive: false });
   root.addEventListener('touchstart', onStart, { passive: true });
   root.addEventListener('touchmove', onMove, { passive: false });
-  return () => { root.removeEventListener('wheel', onWheel); root.removeEventListener('touchstart', onStart); root.removeEventListener('touchmove', onMove); };
+  root.addEventListener('touchend', isolate, { passive: true });
+  root.addEventListener('touchcancel', isolate, { passive: true });
+  return () => {
+    root.removeEventListener('wheel', onWheel); root.removeEventListener('touchstart', onStart); root.removeEventListener('touchmove', onMove);
+    root.removeEventListener('touchend', isolate); root.removeEventListener('touchcancel', isolate);
+  };
 }
