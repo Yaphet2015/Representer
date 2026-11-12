@@ -130,7 +130,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
           return m.role === 'user' ? (
             <div key={i} data-msg="user" className="group flex items-end justify-end gap-1 pl-8" style={{ animation: 'pop-in 200ms cubic-bezier(0.23,1,0.32,1) both' }}>
               <CopyButton reveal tip="bottom" className="mb-0.5" label={t.copyMessage} getText={() => messageMarkdown(m.content)} />
-              <div className={`min-w-0 whitespace-pre-wrap break-words rounded-xl border px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'border-[color-mix(in_srgb,var(--accent)_22%,transparent)] bg-[color-mix(in_srgb,var(--accent)_12%,#fff)] text-accent-ink' : 'border-black/[.08] bg-[color-mix(in_srgb,var(--ink)_7%,#fff)] text-ink'}`} title={m.label ? m.content : undefined}>
+              <div className={`min-w-0 whitespace-pre-wrap break-words rounded-xl border px-3 py-1.5 text-[13px] leading-[1.4] ${m.label ? 'border-accent-ring bg-[color-mix(in_srgb,var(--accent)_12%,var(--surface))] text-accent-ink' : 'border-[var(--edge)] bg-[color-mix(in_srgb,var(--ink)_7%,var(--surface))] text-ink'}`} title={m.label ? m.content : undefined}>
                 {m.label ?? m.content}
               </div>
             </div>

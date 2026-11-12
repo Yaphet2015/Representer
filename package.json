@@ -1,6 +1,6 @@
 {
   "name": "representer",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Representer: open-source Chrome extension for AI page summaries, mind-map outlines and chat, BYOK (OpenAI-compatible).",
   "keywords": [
     "chrome-extension",
