@@ -1,10 +1,10 @@
 import ReactDOM from 'react-dom/client';
-import '@/assets/tailwind.css';
 import { App } from '@/components/App';
 import { LangProvider } from '@/components/i18n';
 import { bus } from '@/components/bus';
 import { installFrameWorker } from '@/lib/frame-bridge';
 import { installDiag } from '@/lib/diag-cs';
+import { PANEL_SHADOW } from '@/lib/panel-css';
 import { rpc, TOGGLE } from '@/lib/messages';
 
 /*
@@ -61,7 +61,8 @@ export default defineContentScript({
   // Cross-origin embeds (e.g. HF Spaces on *.hf.space) only yield their DOM when we inject here too.
   // UI still mounts only in the top frame; child frames answer extract/locate messages.
   allFrames: true,
-  cssInjectionMode: 'ui',
+  // No cssInjectionMode: 'ui': that makes WXT fetch() content.css at first mount and, if the fetch fails, mount an
+  // unstyled panel. The stylesheet is bundled instead (PANEL_CSS) and handed to the shadow root directly.
   async main(ctx) {
     installFrameWorker();
     const isTop = window === window.top;
@@ -75,10 +76,7 @@ export default defineContentScript({
       last = Date.now();
       if (!ui) {
         createShadowRootUi(ctx, {
-          name: 'representer-overlay',
-          position: 'overlay',
-          zIndex: 2147483647,
-          anchor: 'html', // outside <body>, so body-level zoom/transform on the host page can't affect us
+          ...PANEL_SHADOW,
           onMount(container, _shadow, host) {
             // Cancel any CSS zoom inherited from the host page (e.g. html { zoom: .8 }) so the panel is always 380 CSS px.
             const fixZoom = () => {
