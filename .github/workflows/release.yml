@@ -68,9 +68,14 @@ jobs:
           ZIP_PATH: ${{ steps.zip.outputs.path }}
         run: node scripts/cws-publish.mjs "$ZIP_PATH"
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "${{ steps.zip.outputs.path }}" \
-            --title "Representer $GITHUB_REF_NAME" --generate-notes
+          # Publishing from GitHub's UI creates the release before this tag workflow runs.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.zip.outputs.path }}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${{ steps.zip.outputs.path }}" \
+              --title "Representer $GITHUB_REF_NAME" --generate-notes
+          fi
