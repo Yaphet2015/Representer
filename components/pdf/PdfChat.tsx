@@ -6,7 +6,7 @@ import { Markdown } from '../Markdown';
 import { Button } from '../bui/Button';
 
 /** PDF chat uses the same sessions, settings and background chat protocol as a webpage, with a PDF-namespaced key. */
-export function PdfChat({ url, validate }: { url: string; validate: () => Promise<void> }) {
+export function PdfChat({ url, validate, ensureVisual }: { url: string; validate: () => Promise<void>; ensureVisual?: () => Promise<void> }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const sid = useRef(MAIN_ID), port = useRef<chrome.runtime.Port | null>(null), alive = useRef(true);
@@ -21,7 +21,7 @@ export function PdfChat({ url, validate }: { url: string; validate: () => Promis
     if (!input.trim() || busy) return;
     setBusy(true); setError('');
     try {
-      await validate(); if (!alive.current) return;
+      await validate(); await ensureVisual?.(); if (!alive.current) return;
       const text = input.trim(); setInput('');
       setMessages((m) => [...m, { role: 'user', content: text }, { role: 'assistant', content: '' }]);
       const p = chrome.runtime.connect({ name: CHAT_PORT }); port.current = p;

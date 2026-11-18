@@ -1,4 +1,7 @@
-import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, publicPdfUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization } from './pdf-contract';
+import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, PDF_VISUAL_OPEN, publicPdfUrl, pdfCacheUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfVisualOpenRequest } from './pdf-contract';
+import { PDF_MAX_BYTES, PDF_MAX_PAGES } from './pdf-text';
+import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
+
 
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
 export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
@@ -12,9 +15,11 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
     if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: id }).catch(() => {});
   };
   const forget = (id: number) => {
+    const url = grants.get(id)?.url;
     documents.delete(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
     void chrome.storage.session.remove(key(id));
     disablePanel(id);
+    if (url) void closeVisualSession(pdfCacheUrl(url));
   };
   // Manifest default_path would otherwise open a global panel that follows ordinary tabs.
   void chrome.sidePanel.setOptions({ enabled: false });
@@ -63,6 +68,27 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
       }
       return { kind: 'pdf', grant: { tabId: grant.tabId, url: grant.url, token: grant.token } };
     })().then(reply, () => reply({ kind: 'none' }));
+    return true;
+  });
+
+  const fromPanel = (sender: chrome.runtime.MessageSender) => sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('/pdf-panel.html');
+  const grantFor = (url: string, token: string) => [...grants.values()].find((g) => g.url === url && g.token === token && Date.now() - g.at <= 30 * 60_000 && g.at <= Date.now() + 1000);
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
+    if (!msg || typeof msg !== 'object' || !('type' in msg) || !fromPanel(sender)) return false;
+    if (msg.type === PDF_VISUAL_CLOSE && 'url' in msg && typeof msg.url === 'string' && 'token' in msg && typeof msg.token === 'string') {
+      if (!grantFor(msg.url, msg.token)) { reply({ ok: false, error: 'Authorization expired.' }); return true; }
+      void closeVisualSession(pdfCacheUrl(msg.url)).then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String((e as Error).message ?? e) }));
+      return true;
+    }
+    if (!isPdfVisualOpenRequest(msg)) return false;
+    const req = msg;
+    if (!grantFor(req.url, req.token)) { reply({ ok: false, error: 'Authorization expired.' }); return true; }
+    if (req.data.byteLength > PDF_MAX_BYTES || req.catalog.length < 1 || req.catalog.length > PDF_MAX_PAGES) { reply({ ok: false, error: 'PDF visual session is out of bounds.' }); return true; }
+    void (async () => {
+      const { openPdfVisualSession } = await import('./pdf-visual-host');
+      const session = openPdfVisualSession({ data: new Uint8Array(req.data), catalog: req.catalog, pageByAnchor: req.pageByAnchor });
+      await setVisualSession(pdfCacheUrl(req.url), session);
+    })().then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String((e as Error).message ?? e) }));
     return true;
   });
 }

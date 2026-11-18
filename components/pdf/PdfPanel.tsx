@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PDF_CONTEXT, isPdfContext, pdfCacheUrl, publicPdfUrl, type PdfContext, type PdfGrant } from '@/lib/pdf-contract';
+import { PDF_CONTEXT, PDF_VISUAL_CLOSE, PDF_VISUAL_OPEN, isPdfContext, pdfCacheUrl, publicPdfUrl, type PdfContext, type PdfGrant } from '@/lib/pdf-contract';
 import type { PdfText } from '@/lib/pdf-text';
+import { pageNeedsVisualInspection } from '@/lib/pdf-text';
+import type { OverviewStatus } from '@/lib/overview-agent';
+import type { ReadPdfResult } from '@/lib/pdf-read';
 import { pageHash } from '@/lib/cache';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
@@ -40,11 +43,36 @@ export function PdfPanel() {
   }, []);
   return <main data-theme={theme} className="relative flex h-screen min-w-0 flex-col bg-page font-sans text-ink antialiased">
     <header className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3"><h1 className="text-[15px] font-[650]">Representer <span className="text-ink-3">/ PDF</span></h1><Button variant="quiet" size="sm" onClick={() => { void chrome.runtime.openOptionsPage(); }}>Settings</Button></header>
-    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button to select it. Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. Text-only extraction; images, charts, tables and reading order may be incomplete. Scanned and password-protected files are not supported.</p></div>}
+    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button to select it. Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. All pages are read locally, including image-only pages. Your model can inspect rendered page images on demand for charts and figures when it supports vision. Password-protected files are not supported.</p></div>}
   </main>;
 }
 
-type Load = { kind: 'idle' } | { kind: 'loading'; page: number; total: number } | { kind: 'error'; message: string } | { kind: 'ready'; doc: PdfText };
+
+function statusLabel(s: OverviewStatus): string {
+  if (!s) return 'Writing overview…';
+  if (s === 'repairing') return 'Checking sources…';
+  if (s === 'reading') return 'Reading the document…';
+  if (s === 'inspecting') return 'Inspecting a page image…';
+  if (typeof s === 'object' && 'read' in s) return `Reading parts ${s.read}/${s.total}`;
+  if (typeof s === 'object' && 'inspect' in s) return `Inspecting page ${s.inspect}…`;
+  if (typeof s === 'object' && 'vision' in s) return s.reason;
+  return 'Writing overview…';
+}
+async function openVisualSession(grant: PdfGrant, doc: ReadPdfResult) {
+  const copy = doc.data.slice();
+  const r: unknown = await chrome.runtime.sendMessage({
+    type: PDF_VISUAL_OPEN, url: grant.url, token: grant.token, catalog: doc.catalog, pageByAnchor: doc.pageByAnchor,
+    data: copy.buffer.slice(copy.byteOffset, copy.byteOffset + copy.byteLength),
+  });
+  const ok = !!r && typeof r === 'object' && 'ok' in r && r.ok === true;
+  const err = r && typeof r === 'object' && 'error' in r && typeof r.error === 'string' ? r.error : 'Could not open a page-image session for the model.';
+  if (!ok) throw new Error(err);
+}
+async function closeVisualSession(grant: PdfGrant) {
+  try { await chrome.runtime.sendMessage({ type: PDF_VISUAL_CLOSE, url: grant.url, token: grant.token }); } catch { /* already gone */ }
+}
+
+type Load = { kind: 'idle' } | { kind: 'loading'; page: number; total: number } | { kind: 'error'; message: string } | { kind: 'ready'; doc: ReadPdfResult };
 function PdfDocument({ grant }: { grant: PdfGrant }) {
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   const [summary, setSummary] = useState<Summary | null>(null), [partial, setPartial] = useState<Summary | null>(null);
@@ -56,7 +84,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
     const r = await context();
     if (r.kind !== 'pdf' || r.grant.token !== grant.token || r.grant.url !== grant.url) throw new Error('The selected tab changed or authorization expired. Click the toolbar button on the PDF again.');
   }, [grant.token, grant.url]);
-  useEffect(() => () => { operation.current++; ac.current?.abort(); stream.current?.stop(); }, []);
+  useEffect(() => () => { operation.current++; ac.current?.abort(); stream.current?.stop(); void closeVisualSession(grant); }, [grant]);
   const read = async () => {
     const seq = ++operation.current; ac.current?.abort(); const ctrl = new AbortController(); ac.current = ctrl;
     setLoad({ kind: 'loading', page: 0, total: 0 }); setError(''); setSummary(null);
@@ -67,6 +95,8 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       await validate(); ctrl.signal.throwIfAborted();
       const cached = await rpc('getCached', { url: key, hash: pageHash(doc.content) });
       if (seq !== operation.current) return;
+      try { await openVisualSession(grant, doc); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
+      if (seq !== operation.current) return;
       setLoad({ kind: 'ready', doc }); if (cached.ok && cached.cached) setSummary(cached.cached.summary);
     } catch (e) { if (seq === operation.current) setLoad({ kind: 'error', message: ctrl.signal.aborted ? 'Reading cancelled.' : e instanceof Error ? e.message : String(e) }); }
   };
@@ -75,7 +105,9 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
     const seq = ++operation.current; setBusy(true); setError(''); setStatus(''); setPartial(null);
     try {
       await validate(); if (seq !== operation.current) return;
-      const s = streamSummary({ url: key, title: load.doc.title, content: load.doc.content, force }, (p) => { if (seq === operation.current) setPartial(p); }, undefined, undefined, (s) => { if (seq === operation.current) setStatus(s && typeof s === 'object' ? `Reading parts ${s.read}/${s.total}` : s === 'repairing' ? 'Checking sources…' : 'Writing overview…'); });
+      try { await openVisualSession(grant, load.doc); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
+      if (seq !== operation.current) return;
+      const s = streamSummary({ url: key, title: load.doc.title, content: load.doc.content, force }, (p) => { if (seq === operation.current) setPartial(p); }, undefined, undefined, (s) => { if (seq === operation.current) setStatus(statusLabel(s)); });
       stream.current = s; const r = await s.done;
       if (seq !== operation.current) return;
       if ('done' in r) setSummary(r.summary); else if ('error' in r) setError(r.error);
@@ -92,8 +124,8 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
   return <>
     <div className="shrink-0 space-y-2 border-b border-line px-4 py-3">
       <p className="truncate text-[12px] text-ink-3" title={grant.url}>{grant.url}</p>
-      <p className="text-[12px] leading-5 text-ink-2">Text only. Images, charts and table layout may be missing; reading order can vary. Page sources open here, not as highlights in the original viewer.</p>
-      {doc ? <p className="text-[12px] text-ink-3">{doc.pages.length} pages · {doc.bytes.toLocaleString()} bytes · {doc.content.length.toLocaleString()} characters{doc.emptyPages.length > 0 && ` · No selectable text on pages ${doc.emptyPages.join(', ')}`}</p> : <p className="text-[12px] text-ink-3">Limits: 64 MiB · 300 pages · 350,000 text characters · 90 seconds. No redirects or sign-in cookies.</p>}
+      <p className="text-[12px] leading-5 text-ink-2">All pages stay available to your model, including image-only pages. The model can inspect rendered page images on demand for charts and figures (a vision-capable OpenAI-compatible model is required). Page sources open here, not as highlights in the original viewer. Password-protected files are not supported.</p>
+      {doc ? <p className="text-[12px] text-ink-3">{doc.pages.length} pages · {doc.bytes.toLocaleString()} bytes · {doc.content.length.toLocaleString()} characters{doc.emptyPages.length > 0 && ` · No selectable text on pages ${doc.emptyPages.join(', ')}`}{doc.catalog.some(pageNeedsVisualInspection) && ` · ${doc.catalog.filter(pageNeedsVisualInspection).length} page${doc.catalog.filter(pageNeedsVisualInspection).length === 1 ? '' : 's'} flagged for visual inspection`}</p> : <p className="text-[12px] text-ink-3">Limits: 64 MiB · 300 pages · 350,000 text characters · 90 seconds. No redirects or sign-in cookies.</p>}
       {load.kind === 'loading' ? <div className="flex items-center gap-2 text-[12px] text-ink-2"><span>{load.total ? `Reading page ${load.page}/${load.total}` : 'Downloading PDF…'}</span><Button size="sm" onClick={() => ac.current?.abort()}>Cancel</Button></div> : !doc ? <Button size="sm" variant="accent" onClick={() => { void read(); }}>Read PDF locally</Button> : <div className="flex flex-wrap items-center gap-2">
         {!summary && !busy && <Button size="sm" variant="accent" onClick={() => { void summarize(); }}>Summarize with my model</Button>}
         {busy && <Button size="sm" onClick={() => stream.current?.stop()}>Stop summary</Button>}
@@ -104,8 +136,8 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       {error && <p role="alert" className="text-[12px] text-red">{error}</p>}
       {busy && <p role="status" className="text-[12px] text-ink-3">{status || 'Summarizing…'}</p>}
     </div>
-    {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
-      {shown ? <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc.title} host={new URL(grant.url).hostname} streaming={busy} /></OverviewSource.Provider> : <p className="px-4 text-[13px] leading-6 text-ink-2">All pages have been read locally. Choose Summarize to send the extracted text to your configured model. Nothing is sent until you choose it.</p>}
+    {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualSession(grant, doc)} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
+      {shown ? <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc.title} host={new URL(grant.url).hostname} streaming={busy} /></OverviewSource.Provider> : <p className="px-4 text-[13px] leading-6 text-ink-2">All pages have been read locally. Choose Summarize to send the text and allow on-demand page images to your configured model. Nothing is sent until you choose it.</p>}
     </div>)}
     {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} />}
   </>;
@@ -117,7 +149,7 @@ function PdfSourcePage({ doc, page, setPage, close }: { doc: PdfText; page: numb
   return <dialog ref={dialog} onClose={close} onCancel={close} aria-label={`PDF page ${page}`} className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-page p-0 text-ink">
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line p-4"><label className="text-[13px]">Page <select aria-label="PDF source page" value={page} onChange={(e) => setPage(Number(e.target.value))} className="rounded bg-field px-2 py-1 text-ink">{doc.pages.map((_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}</select> / {doc.pages.length}</label><Button size="sm" onClick={close}>Close</Button></header>
-      <p className="px-4 pt-3 text-[12px] text-ink-3">Extracted page text; not a visual reproduction or a highlight in the PDF viewer.</p>
+      <p className="px-4 pt-3 text-[12px] text-ink-3">Extracted page text for your reference. The model can inspect a rendered image of this page; this dialog is not a visual reproduction or a highlight in the PDF viewer.</p>
       <pre tabIndex={0} className="rp-scroll min-h-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-[13px] leading-6 text-ink">{doc.pages[page - 1] || '(No selectable text on this page.)'}</pre>
     </div>
   </dialog>;

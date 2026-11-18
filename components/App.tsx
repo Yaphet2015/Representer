@@ -230,7 +230,7 @@ export function App() {
                   <div className="flex h-full flex-col overflow-hidden">
                     {/* first row while summarizing: status, timer, cancel */}
                     <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
-                      <LoadingState label={typeof status === 'object' && status ? t.readChunks(status.read, status.total) : status === 'repairing' ? t.repairing : thought ? <ThoughtLine line={thought} /> : status === 'reading' ? t.readingPage : t.summarizingLabel} tone="bg-accent" since={startedAt} />
+                      <LoadingState label={typeof status === 'object' && status && 'read' in status ? t.readChunks(status.read, status.total) : status === 'repairing' ? t.repairing : thought ? <ThoughtLine line={thought} /> : status === 'reading' ? t.readingPage : t.summarizingLabel} tone="bg-accent" since={startedAt} />
                       <Button variant="secondary" size="xs" data-cancel onClick={cancel} className="shrink-0">{t.cancelSummary}</Button>
                     </div>
                     <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>

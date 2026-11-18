@@ -3,23 +3,48 @@ export const PDF_MAX_BYTES = 64 * 1024 * 1024;
 export const PDF_MAX_PAGES = 300;
 // Below the existing chat/read-page 400k ceiling. Reject, never silently truncate the document.
 export const PDF_MAX_CHARS = 350_000;
-export interface PdfText { title: string; bytes: number; pages: string[]; content: string; pageByAnchor: Record<string, number>; emptyPages: number[] }
-export function pdfTextDocument(pages: string[], bytes: number, title: string): PdfText {
+/** One PDF page's text-layer and image-op facts, used to tell the agent when to inspect a rendering. */
+export interface PdfPageInfo { page: number; chars: number; hasText: boolean; hasImages: boolean }
+export interface PdfText { title: string; bytes: number; pages: string[]; content: string; pageByAnchor: Record<string, number>; emptyPages: number[]; catalog: PdfPageInfo[] }
+/** A page the agent should look at as an image: no/little text, or paint operators for images/charts. */
+export const PDF_THIN_TEXT_CHARS = 80;
+export function pageNeedsVisualInspection(p: PdfPageInfo): boolean {
+  return p.hasImages || !p.hasText || p.chars < PDF_THIN_TEXT_CHARS;
+}
+const EMPTY_PAGE = '(No selectable text on this page. Inspect the rendered page image for charts, figures or scanned content.)';
+export function pdfTextDocument(pages: string[], bytes: number, title: string, visuals: readonly { hasImages: boolean }[] = []): PdfText {
   if (!pages.length || pages.length > PDF_MAX_PAGES) throw new Error(`PDF page limit: ${PDF_MAX_PAGES}.`);
-  if (!pages.some((p) => /[\p{L}\p{N}]/u.test(p))) throw new Error('No selectable text found. Scanned/image-only PDFs need OCR, which is not supported.');
   const pageByAnchor: Record<string, number> = {}; const blocks: string[] = []; const emptyPages: number[] = [];
-  pages.forEach((text, i) => {
+  const catalog: PdfPageInfo[] = pages.map((text, i) => {
     const cleaned = text.replace(/\[p\d+\]/g, '(source marker)').trim(); // PDF text is untrusted, cannot forge block IDs
+    const hasText = /[\p{L}\p{N}]/u.test(cleaned);
     if (!cleaned) emptyPages.push(i + 1);
-    const body = cleaned || '(No selectable text on this page. Images/charts are not extracted.)';
+    const body = cleaned || EMPTY_PAGE;
     for (let at = 0; at < body.length; at += 1600) {
       const id = `p${blocks.length + 1}`; pageByAnchor[id] = i + 1;
       blocks.push(`[${id}] PDF page ${i + 1}: ${body.slice(at, at + 1600)}`);
     }
+    const visual = visuals[i];
+    return { page: i + 1, chars: cleaned.length, hasText, hasImages: !!visual?.hasImages };
   });
   const content = blocks.join('\n\n');
   if (content.length > PDF_MAX_CHARS) throw new Error(`PDF text exceeds ${PDF_MAX_CHARS.toLocaleString()} characters. Nothing was summarized; use a smaller document.`);
-  return { title, bytes, pages, content, pageByAnchor, emptyPages };
+  return { title, bytes, pages, content, pageByAnchor, emptyPages, catalog };
+}
+/** A compact catalog so the agent can decide which pages to render. Never includes image bytes. */
+export function formatPdfPageCatalog(catalog: readonly PdfPageInfo[], inspectBudget: number): string {
+  const lines = catalog.map((p) => {
+    const flags = [
+      p.hasText ? `${p.chars} chars of selectable text` : 'no selectable text',
+      p.hasImages ? 'contains images or painted figures' : 'no image paint operators detected',
+      pageNeedsVisualInspection(p) ? 'inspect the rendered page' : 'inspect if a figure may matter',
+    ];
+    return `${p.page}: ${flags.join('; ')}`;
+  });
+  return `Every page of this PDF is available. The text layer can omit charts, figures, photos and scanned wording. Pages listed as needing inspection, and any page a question or figure depends on, should be opened with inspect_pdf_page({page: N}) (one page per call; at most ${inspectBudget} pages in this run). Do not request every page. Cite answers with the existing block id for that page (the [pN] marker whose line says "PDF page N"). If inspect_pdf_page reports that this model cannot accept images, say so clearly and do not invent chart or scanned values.
+<pdf_pages>
+${lines.join('\n')}
+</pdf_pages>`;
 }
 /** Streaming cap includes a lying/missing Content-Length. No range requests, redirects, cookies or automatic retries. */
 export async function readPdfBytes(response: Response, signal: AbortSignal): Promise<Uint8Array> {

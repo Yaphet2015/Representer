@@ -1,6 +1,7 @@
 /** Picks the real (pi durable) provider, or the mock one in dev builds, so callers never branch on it. */
-import { runTurn } from './llm';
+import { runTurn, type InputModality } from './llm';
 import type { Usage } from '@earendil-works/pi-ai';
+import { defineExtension } from '@earendil-works/pi-durable';
 import { OutputTruncated, MAX_OUTPUT_CEILING, maxOutputFor, isMaxTokensError, SAFE_MAX_OUTPUT } from './budget';
 import { OVERVIEW_INLINE_MAX, OverviewIncomplete, runOverviewAgent, ToolsUnsupported, type OverviewStatus } from './overview-agent';
 import { extractNotes, notesInput } from './chunked-overview';
@@ -8,7 +9,9 @@ import { AbortError } from './abort';
 import { mockOverviewAgent, mockStream, useMock } from './mock';
 import { summarizeWithSteps } from './steps';
 import { messages, type Lang } from './i18n';
-import { pageTools } from './page-tools';
+import { pageTools, readTools } from './page-tools';
+import { isInline, MAX_PAGE_CHARS } from './attachment';
+import { isImageInputRejected, inspectPdfPageTools, VISION_UNSUPPORTED, type PdfVisualSession } from './pdf-visual';
 import { chatSystem, overviewAgentInstructions, summaryInstructions, summaryInput } from './prompts';
 import type { ChatMessage, Settings, Summary } from './types';
 
@@ -16,8 +19,10 @@ export interface Provider {
   /** `onDelta` receives the raw JSON text as the model writes it (a provider that does not stream just never calls it) */
   summarize(title: string, url: string, content: string, signal?: AbortSignal, onDelta?: (t: string) => void, onThinking?: (t: string) => void, more?: SummarizeHooks): Promise<Summary>;
   /** `summary` is null when there is no overview: the page is then an attachment the model reads on demand */
-  chat(ctx: { title: string; summary: Summary | null; content: string }, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string>;
+  chat(ctx: ChatContext, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string>;
 }
+
+export interface ChatContext { title: string; summary: Summary | null; content: string; visual?: PdfVisualSession }
 
 export interface SummarizeHooks {
   /** the overview agent hands over the summary built so far after each accepted piece */
@@ -26,6 +31,8 @@ export interface SummarizeHooks {
   onStatus?: (s: OverviewStatus) => void;
   /** token usage of each model reply (for measurement) */
   onUsage?: (u: Usage) => void;
+  /** PDF page-image session; ordinary webpages omit this */
+  visual?: PdfVisualSession;
 }
 
 /** output cap of one chunk-notes call (no reasoning: the notes alone) */
@@ -41,6 +48,7 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
   }
   return {
     summarize: async (title, url, content, signal, onDelta, onThinking, more = {}) => {
+      const visual = more.visual;
       try {
         // a long page: its chunks are read in parallel first (reasoning off; only progress is shown), then the agent
         // writes the overview from their notes
@@ -54,13 +62,18 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         }
         return await runOverviewAgent({
           instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal, input,
-          onPartial: more.onPartial, onStatus: more.onStatus,
-        }, { turn: (instructions, input, tools, sig, maxTokens, onStop, onToolArgs) => runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: input ? 'off' : 'low' }) });
+          onPartial: more.onPartial, onStatus: more.onStatus, visual,
+        }, { turn: (instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs) =>
+          runVisualTurn(s, visual, more, instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs, onThinking) });
       } catch (e) {
         if (e instanceof AbortError || signal?.aborted) throw e;
         if (!(e instanceof ToolsUnsupported)) throw friendly(e, lang);
       }
       // a model without tool calling: the single JSON reply, but never parsed when it was cut off
+      if (visual) {
+        visual.markUnsupported('This model cannot call tools, so page images were not inspected. Do not invent chart or scanned values.');
+        more.onStatus?.({ vision: 'unsupported', reason: 'This model cannot call tools, so page images were not inspected. Do not invent chart or scanned values.' });
+      }
       try {
         return await summarizeWithSteps(content, (feedback, attemptSignal, delta, thinking) => singleCall(s, lang, feedback ? `${summaryInput(title, url, content)}\n\n${feedback}` : summaryInput(title, url, content), delta, attemptSignal, thinking), signal, onDelta, onThinking);
       } catch (e) {
@@ -68,8 +81,42 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         throw friendly(e, lang);
       }
     },
-    chat: (c, history, input, onDelta, signal) => runTurn(s, chatSystem(c.title, c.summary, c.content, s.systemPrompt), history, input, onDelta, signal, c.summary ? null : pageTools(c.content)),
+    chat: (c, history, input, onDelta, signal) => runVisualChat(s, c, history, input, onDelta, signal),
   };
+}
+
+function modalitiesOf(visual?: PdfVisualSession): readonly InputModality[] {
+  return visual && visual.vision().kind !== 'unsupported' ? ['text', 'image'] : ['text'];
+}
+
+async function runVisualTurn(s: Settings, visual: PdfVisualSession | undefined, more: SummarizeHooks, instructions: string, input: string, tools: Parameters<typeof runTurn>[6], sig: AbortSignal, maxTokens: number, onStop: (reason: string) => void, onToolArgs: (name: string, args: unknown) => void, onThinking?: (t: string) => void): Promise<string> {
+  try {
+    return await runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: input ? 'off' : 'low', modalities: modalitiesOf(visual) });
+  } catch (e) {
+    if (!visual || visual.vision().kind === 'unsupported' || !isImageInputRejected(e)) throw e;
+    visual.markUnsupported(VISION_UNSUPPORTED);
+    more.onStatus?.({ vision: 'unsupported', reason: VISION_UNSUPPORTED });
+    return await runTurn(s, `${instructions}\n\n${VISION_UNSUPPORTED}`, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: input ? 'off' : 'low', modalities: ['text'] });
+  }
+}
+
+function chatTools(c: ChatContext) {
+  const inspect = c.visual ? inspectPdfPageTools(c.visual) : [];
+  const page = !c.summary && !isInline(c.content.slice(0, MAX_PAGE_CHARS)) ? readTools(c.content.slice(0, MAX_PAGE_CHARS)) : [];
+  if (!inspect.length && !page.length) return c.summary ? null : pageTools(c.content);
+  return defineExtension({ name: 'pdf-chat', tools: [...page, ...inspect] });
+}
+
+async function runVisualChat(s: Settings, c: ChatContext, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string> {
+  const tools = chatTools(c);
+  const instructions = chatSystem(c.title, c.summary, c.content, s.systemPrompt, c.visual?.prompt());
+  try {
+    return await runTurn(s, instructions, history, input, onDelta, signal, tools, undefined, { modalities: modalitiesOf(c.visual) });
+  } catch (e) {
+    if (!c.visual || c.visual.vision().kind === 'unsupported' || !isImageInputRejected(e)) throw e;
+    c.visual.markUnsupported(VISION_UNSUPPORTED);
+    return await runTurn(s, `${instructions}\n\n${VISION_UNSUPPORTED}`, history, input, onDelta, signal, tools, undefined, { modalities: ['text'] });
+  }
 }
 
 /** One JSON reply. Cut off (stop reason "length"): try again with twice the budget, up to two more times. */

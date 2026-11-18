@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PDF_MAX_BYTES, PDF_MAX_CHARS, PDF_MAX_PAGES, PDF_WORD_SPACE_EM, joinPdfTextItems, pdfTextDocument, readPdfBytes, type PdfGlyphRun } from '../lib/pdf-text';
+import { PDF_MAX_BYTES, PDF_MAX_CHARS, PDF_MAX_PAGES, PDF_WORD_SPACE_EM, formatPdfPageCatalog, joinPdfTextItems, pageNeedsVisualInspection, pdfTextDocument, readPdfBytes, type PdfGlyphRun } from '../lib/pdf-text';
 import { chunkContent } from '../lib/chunked-overview';
 import { OVERVIEW_INLINE_MAX } from '../lib/overview-agent';
 import { pdfCacheUrl, publicPdfUrl } from '../lib/pdf-contract';
@@ -25,9 +25,24 @@ describe('PDF document boundaries and source pages', () => {
     expect(() => pdfTextDocument(Array(PDF_MAX_PAGES + 1).fill('x'), 100, 'x')).toThrow(/page limit/);
     expect(() => pdfTextDocument(['x'.repeat(PDF_MAX_CHARS)], 100, 'x')).toThrow(/exceeds/);
   });
-  it('rejects scans/empty documents and explicitly identifies empty pages in a mixed file', () => {
-    expect(() => pdfTextDocument(['', ''], 100, 'x')).toThrow(/No selectable text/);
-    const d = pdfTextDocument(['Text', ''], 100, 'x'); expect(d.emptyPages).toEqual([2]); expect(d.content).toContain('No selectable text');
+  it('keeps image-only and empty pages and flags them for visual inspection', () => {
+    const empty = pdfTextDocument(['', ''], 100, 'x');
+    expect(empty.emptyPages).toEqual([1, 2]);
+    expect(empty.catalog).toEqual([
+      { page: 1, chars: 0, hasText: false, hasImages: false },
+      { page: 2, chars: 0, hasText: false, hasImages: false },
+    ]);
+    expect(empty.content).toContain('Inspect the rendered page image');
+    expect(empty.pageByAnchor).toEqual({ p1: 1, p2: 2 });
+    const mixed = pdfTextDocument(['Text', ''], 100, 'x', [{ hasImages: false }, { hasImages: true }]);
+    expect(mixed.emptyPages).toEqual([2]);
+    expect(mixed.catalog[1]).toEqual({ page: 2, chars: 0, hasText: false, hasImages: true });
+    expect(pageNeedsVisualInspection(mixed.catalog[1]!)).toBe(true);
+    expect(pageNeedsVisualInspection({ page: 3, chars: 5000, hasText: true, hasImages: true })).toBe(true);
+    const catalog = formatPdfPageCatalog(mixed.catalog, 10);
+    expect(catalog).toContain('inspect_pdf_page');
+    expect(catalog).toContain('contains images or painted figures');
+    expect(catalog).not.toMatch(/iVBOR|image\/png|AAAA/); // never embeds image bytes
   });
   it('does not collide with the existing webpage summary or chat cache namespace', () => { expect(pdfCacheUrl('https://a.com/doc')).toBe('pdf:v1:https://a.com/doc'); });
 });

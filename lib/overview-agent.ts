@@ -15,10 +15,12 @@ import { readTools } from './page-tools';
 import { partialFromObject } from './partial-json';
 import { MAX_CONTENT_CHARS } from './prompts';
 import { detectSteps, missingSteps } from './steps';
+import { inspectPdfPageTools, type PdfVisualSession } from './pdf-visual';
+import { pdfVisualGuide } from './prompts';
 import { ICON_TYPES, type Summary } from './types';
 
 /** `read`/`total`: a long page's chunks read so far, before the overview is written (lib/chunked-overview.ts) */
-export type OverviewStatus = 'reading' | 'repairing' | { read: number; total: number } | null;
+export type OverviewStatus = 'reading' | 'repairing' | 'inspecting' | { read: number; total: number } | { inspect: number } | { vision: 'unsupported'; reason: string } | null;
 export interface RawBullet { text: string; anchor: string }
 export interface RawSection { title: string; anchor: string; icon: string; bullets: RawBullet[] }
 export type ToolResult = { ok: true; message: string } | { ok: false; error: string };
@@ -203,7 +205,7 @@ export type OverviewDraft = ReturnType<typeof createOverviewDraft>;
 const out = (t: string) => ({ output: [{ type: 'text' as const, text: t }] });
 
 /** The tools over a draft (plus read_page / search_page for pages too long to embed). */
-export function overviewTools(draft: OverviewDraft, page: string, withRead: boolean, hooks: { onResult?(name: string, r: ToolResult): void; onRead?(): void } = {}) {
+export function overviewTools(draft: OverviewDraft, page: string, withRead: boolean, hooks: { onResult?(name: string, r: ToolResult): void; onRead?(): void; onInspect?(page: number): void; visual?: PdfVisualSession } = {}) {
   const wrap = (name: string, f: () => ToolResult) => {
     const r = f();
     hooks.onResult?.(name, r);
@@ -214,6 +216,7 @@ export function overviewTools(draft: OverviewDraft, page: string, withRead: bool
     name: 'overview',
     tools: [
       ...(withRead ? readTools(page).map((t: any) => ({ ...t, execute: async (args: any) => { hooks.onRead?.(); return t.execute(args); } })) : []),
+      ...(hooks.visual ? inspectPdfPageTools(hooks.visual, { onInspect: hooks.onInspect }) : []),
       defineTool({
         name: 'submit_summary', description: 'Submit the whole summary at once. Pieces that fail the checks come back as errors; fix them with the other tools.',
         parameters: Type.Object({
@@ -293,14 +296,18 @@ export interface AgentOptions {
   maxTurns?: number; maxToolCalls?: number; deadlineMs?: number;
   /** the first message, when it is not the page itself (a long page's chunk notes) */
   input?: string;
+  /** on-demand PDF page images; omit on ordinary webpages */
+  visual?: PdfVisualSession;
 }
 
 /** Run the loop. Returns the finished summary, or the best partial one when the limits run out first. */
 export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promise<Summary> {
-  const { maxTurns = 4, maxToolCalls = 40, deadlineMs = 150_000 } = o;
+  const { maxTurns = o.visual ? 6 : 4, maxToolCalls = o.visual ? 50 : 40, deadlineMs = o.visual ? 180_000 : 150_000 } = o;
   if (o.signal?.aborted) throw new AbortError();
   const draft = createOverviewDraft(o.content);
-  const { input, withRead } = o.input ? { input: o.input, withRead: false } : overviewInput(o.title, o.url, o.content);
+  const base = o.input ? { input: o.input, withRead: false } : overviewInput(o.title, o.url, o.content);
+  const input = o.visual ? `${base.input}\n\n${o.visual.prompt()}` : base.input;
+  const withRead = base.withRead;
   let calls = 0, outputs = 0, budget = maxOutputFor(o.model), lastError: unknown = null;
   let run: AbortController | null = null;
   let outOfTime = false, outOfCalls = false;
@@ -325,6 +332,8 @@ export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promis
     if (key !== lastPartial) { lastPartial = key; o.onPartial?.(p); }
   };
   const tools = overviewTools(draft, o.content.slice(0, MAX_PAGE_CHARS), withRead, {
+    visual: o.visual,
+    onInspect: (page) => { if (++calls > maxToolCalls) { outOfCalls = true; run?.abort(); } o.onStatus?.({ inspect: page }); },
     onRead: () => { if (++calls > maxToolCalls) { outOfCalls = true; run?.abort(); } o.onStatus?.('reading'); },
     onResult: (_name, r) => {
       outputs++;
@@ -343,7 +352,7 @@ export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promis
       let stop = 'stop', reply = '';
       const before = outputs;
       try {
-        reply = await deps.turn(o.instructions, t === 0 ? input : continuation(draft, input, stop), tools, run.signal, budget, (r) => { stop = r; }, streamArgs);
+        reply = await deps.turn(o.visual ? `${o.instructions}\n\n${pdfVisualGuide()}` : o.instructions, t === 0 ? input : continuation(draft, input, stop), tools, run.signal, budget, (r) => { stop = r; }, streamArgs);
       } catch (e) {
         if (o.signal?.aborted) throw new AbortError();
         if (draft.finished || outOfTime || outOfCalls) break;

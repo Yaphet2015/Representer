@@ -22,7 +22,25 @@ describe('PDF.js full text extraction', () => {
     expect(doc.pages[1]).toContain('L9:'); expect(doc.pages[1]).toContain('R9:');
     expect(f).toHaveBeenCalledTimes(1); expect(f.mock.calls[0]).toBeDefined();
   });
-  it('explains image-only/empty files', async () => { fixture('pdf-blank.pdf'); await expect(readPdf('https://a.com/x', new AbortController().signal, () => {})).rejects.toThrow(/No selectable text/); });
+  it('accepts a blank file as an image-only document instead of refusing the read', async () => {
+    fixture('pdf-blank.pdf');
+    const doc = await readPdf('https://a.com/x', new AbortController().signal, () => {});
+    expect(doc.pages).toHaveLength(1);
+    expect(doc.emptyPages).toEqual([1]);
+    expect(doc.catalog[0]).toMatchObject({ page: 1, hasText: false });
+    expect(doc.data.byteLength).toBeGreaterThan(0);
+  });
+  it('keeps a pixel-only chart page and does not put the visual fact in the text layer', async () => {
+    fixture('pdf-visual.pdf');
+    const doc = await readPdf('https://files.example.org/visual', new AbortController().signal, () => {});
+    expect(doc.pages).toHaveLength(2);
+    expect(doc.pages[0]).toContain('sales code is not written in the text layer');
+    expect(doc.pages[1]?.trim() ?? '').toBe('');
+    expect(doc.content).not.toContain('ORBIT-SALES-904');
+    expect(doc.pages.join('\n')).not.toContain('ORBIT-SALES-904');
+    expect(doc.catalog[1]).toMatchObject({ page: 2, hasText: false, hasImages: true });
+    expect(doc.pageByAnchor['p2']).toBe(2);
+  });
   it('rejects password protection without prompting or hanging', async () => { fixture('pdf-password.pdf'); await expect(readPdf('https://a.com/x', new AbortController().signal, () => {})).rejects.toThrow(/Password-protected/); });
   it('joins mid-word font-change fragments and keeps typographic word/column spaces, without dictionary merging', async () => {
     fixture('pdf-spacing.pdf');

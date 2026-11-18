@@ -21,12 +21,15 @@ const PROVIDER = 'byok';
  */
 export type Reasoning = 'off' | 'low';
 
-export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model), reasoning?: Reasoning) {
+export type InputModality = 'text' | 'image';
+export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model), reasoning?: Reasoning, modalities: readonly InputModality[] = ['text']) {
   const baseUrl = s.baseUrl.replace(/\/+$/, '');
+  // pi-ai silently drops images unless input includes "image". Only set that when this turn actually offers page images.
+  const input: InputModality[] = modalities.includes('image') ? ['text', 'image'] : ['text'];
   const model: Model<'openai-completions'> = {
     id: s.model, name: s.model, api: 'openai-completions', provider: PROVIDER, baseUrl,
     // a reasoning model with 'off' mapped to "none": only set when a call asks for a reasoning level
-    reasoning: !!reasoning, ...(reasoning ? { thinkingLevelMap: { off: 'none' } } : {}), input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    reasoning: !!reasoning, ...(reasoning ? { thinkingLevelMap: { off: 'none' } } : {}), input, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000, maxTokens,
   } as Model<'openai-completions'>;
   const models = createModels();
@@ -54,6 +57,8 @@ export interface TurnOptions {
   onUsage?: (u: Usage) => void;
   /** reasoning level for this call; a server that rejects the field gets the call again without it */
   reasoning?: Reasoning;
+  /** model.input modalities for this turn; default text-only so webpage calls cannot silently advertise vision */
+  modalities?: readonly InputModality[];
 }
 
 /** Rebuilds streamed tool-call arguments from the event changes (start, string appends at a path, whole blocks). */
@@ -107,7 +112,7 @@ async function turnOnce(
   const ctx = BACKGROUND_CONTEXT;
   const registry = createRegistry();
   if (tools) registry.install(tools);
-  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens, opts.reasoning), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
+  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens, opts.reasoning, opts.modalities), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
   try {
     const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions, ...(opts.reasoning ? { thinkingLevel: opts.reasoning } : {}) } } as any);
     if (history.length) {

@@ -20,12 +20,13 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   HTMLDialogElement.prototype.close = function () { this.open = false; };
-  active = true; read.mockReset(); read.mockResolvedValue(pdfTextDocument(['First page. Repeated sentence.', 'Second page. Repeated sentence.'], 5000, 'fixture'));
+  active = true; read.mockReset(); read.mockResolvedValue({ ...pdfTextDocument(['First page. Repeated sentence.', 'Second page. Repeated sentence.'], 5000, 'fixture'), data: new Uint8Array([0x25, 0x50, 0x44, 0x46]) });
   document.body.innerHTML = '<div id="root"></div>'; host = document.getElementById('root')!;
   setStorage = vi.fn(() => { throw new Error('must not write settings/cache'); }); connect = vi.fn(() => { throw new Error('must not call model unless user chooses Summarize/Send'); });
   rpc = vi.fn(async (msg) => {
     if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
     if (msg.type === 'getCached') return { ok: true, cached: { summary } };
+    if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
     return { ok: false };
   });
   vi.stubGlobal('chrome', {
@@ -46,6 +47,9 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     await clickText('Read PDF locally'); expect(read).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('2 pages'); expect(host.textContent).toContain('Synthetic summary');
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'getCached', url: 'pdf:v1:https://files.example.org/doc' }));
+    expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'rp-pdf-visual-open', url: 'https://files.example.org/doc', token: 'clicked' }));
+    expect(host.textContent).toContain('inspect rendered page images');
+    expect(host.textContent).not.toMatch(/Text only/);
     const source = host.querySelector<HTMLElement>('[role="button"][aria-label="View PDF source page in sidebar"]'); expect(source).toBeTruthy();
     await act(async () => source!.click()); await settle();
     expect(host.querySelector('[aria-label="PDF page 2"]')).toBeTruthy();
@@ -67,6 +71,7 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     rpc.mockImplementation(async (msg) => {
       if (msg.type === PDF_CONTEXT) return { kind: 'none' };
       if (msg.type === 'getCached') return { ok: true, cached: { summary } };
+      if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
       return { ok: false };
     });
     await act(async () => activated?.({ tabId: 9 })); await settle();
