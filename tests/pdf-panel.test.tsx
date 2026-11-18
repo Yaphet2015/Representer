@@ -8,6 +8,10 @@ import { PDF_CONTEXT } from '../lib/pdf-contract';
 
 const read = vi.hoisted(() => vi.fn());
 vi.mock('../lib/pdf-read', () => ({ readPdf: read }));
+vi.mock('@/lib/pdf-render', () => ({
+  createPdfRenderBackend: () => ({ render: async (page: number) => ({ page, width: 1, height: 1, mimeType: 'image/png', bytes: new Uint8Array([1]) }), close: async () => {} }),
+  webCanvasFactory: () => ({ create: () => ({ canvas: { width: 1, height: 1 }, context: {} }), reset() {}, destroy() {} }),
+}));
 let root: Root, host: HTMLElement;
 let rpc: ReturnType<typeof vi.fn>, connect: ReturnType<typeof vi.fn>, setStorage: ReturnType<typeof vi.fn>;
 let changed: ((id: number, info: { status: string }) => void) | undefined;
@@ -22,7 +26,11 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.open = false; };
   active = true; read.mockReset(); read.mockResolvedValue({ ...pdfTextDocument(['First page. Repeated sentence.', 'Second page. Repeated sentence.'], 5000, 'fixture'), data: new Uint8Array([0x25, 0x50, 0x44, 0x46]) });
   document.body.innerHTML = '<div id="root"></div>'; host = document.getElementById('root')!;
-  setStorage = vi.fn(() => { throw new Error('must not write settings/cache'); }); connect = vi.fn(() => { throw new Error('must not call model unless user chooses Summarize/Send'); });
+  setStorage = vi.fn(() => { throw new Error('must not write settings/cache'); });
+  connect = vi.fn((info?: { name?: string }) => {
+    if (info?.name === 'pdf-visual') return { name: 'pdf-visual', postMessage: vi.fn(), disconnect: vi.fn(), onMessage: noListeners(), onDisconnect: noListeners() };
+    throw new Error('must not call model unless user chooses Summarize/Send');
+  });
   rpc = vi.fn(async (msg) => {
     if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
     if (msg.type === 'getCached') return { ok: true, cached: { summary } };
@@ -30,7 +38,7 @@ beforeEach(() => {
     return { ok: false };
   });
   vi.stubGlobal('chrome', {
-    runtime: { sendMessage: rpc, connect, openOptionsPage: vi.fn(), onMessage: noListeners() },
+    runtime: { sendMessage: rpc, connect, getURL: (p: string) => p, openOptionsPage: vi.fn(), onMessage: noListeners() },
     tabs: { onActivated: { addListener: (f: typeof activated) => { activated = f; }, removeListener: vi.fn() }, onUpdated: { addListener: (f: typeof changed) => { changed = f; }, removeListener: vi.fn() } },
     storage: { local: { get: async () => ({}), set: setStorage, remove: setStorage }, onChanged: noListeners() },
   });
@@ -47,19 +55,19 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     await clickText('Read PDF locally'); expect(read).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('2 pages'); expect(host.textContent).toContain('Synthetic summary');
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'getCached', url: 'pdf:v1:https://files.example.org/doc' }));
-    expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'rp-pdf-visual-open', url: 'https://files.example.org/doc', token: 'clicked' }));
+    expect(connect).toHaveBeenCalledWith({ name: 'pdf-visual' });
     expect(host.textContent).toContain('inspect rendered page images');
     expect(host.textContent).not.toMatch(/Text only/);
     const source = host.querySelector<HTMLElement>('[role="button"][aria-label="View PDF source page in sidebar"]'); expect(source).toBeTruthy();
     await act(async () => source!.click()); await settle();
     expect(host.querySelector('[aria-label="PDF page 2"]')).toBeTruthy();
     expect(host.querySelector('pre')?.textContent).toBe('Second page. Repeated sentence.');
-    expect(setStorage).not.toHaveBeenCalled(); expect(connect).not.toHaveBeenCalled();
+    expect(setStorage).not.toHaveBeenCalled(); expect(connect.mock.calls.every((c) => c[0]?.name === "pdf-visual")).toBe(true);
   });
   it('invalidates extracted text on a navigation and does not automatically re-download', async () => {
     await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
     active = false; await act(async () => changed?.(8, { status: 'loading' })); await settle();
-    expect(host.textContent).not.toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1); expect(connect).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1); expect(connect.mock.calls.every((c) => c[0]?.name === 'pdf-visual')).toBe(true);
   });
   it('does not discard the reader or restart extraction when another tab loads', async () => {
     await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');

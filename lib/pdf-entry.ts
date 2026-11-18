@@ -1,6 +1,8 @@
-import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, PDF_VISUAL_OPEN, publicPdfUrl, pdfCacheUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfVisualOpenRequest } from './pdf-contract';
-import { PDF_MAX_BYTES, PDF_MAX_PAGES } from './pdf-text';
+import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization } from './pdf-contract';
+import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
+import { createPdfVisualSession } from './pdf-visual';
+import { PDF_VISUAL_PORT, isPdfVisualRegister, panelRenderBackend } from './pdf-visual-port';
 
 
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
@@ -80,15 +82,21 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
       void closeVisualSession(pdfCacheUrl(msg.url)).then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String((e as Error).message ?? e) }));
       return true;
     }
-    if (!isPdfVisualOpenRequest(msg)) return false;
-    const req = msg;
-    if (!grantFor(req.url, req.token)) { reply({ ok: false, error: 'Authorization expired.' }); return true; }
-    if (req.data.byteLength > PDF_MAX_BYTES || req.catalog.length < 1 || req.catalog.length > PDF_MAX_PAGES) { reply({ ok: false, error: 'PDF visual session is out of bounds.' }); return true; }
-    void (async () => {
-      const { openPdfVisualSession } = await import('./pdf-visual-host');
-      const session = openPdfVisualSession({ data: new Uint8Array(req.data), catalog: req.catalog, pageByAnchor: req.pageByAnchor });
-      await setVisualSession(pdfCacheUrl(req.url), session);
-    })().then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String((e as Error).message ?? e) }));
-    return true;
+    return false;
+  });
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== PDF_VISUAL_PORT) return;
+    const sender = port.sender;
+    if (!sender || !fromPanel(sender)) { port.disconnect(); return; }
+    const onMessage = (msg: unknown) => {
+      if (!isPdfVisualRegister(msg)) return;
+      if (!grantFor(msg.url, msg.token) || msg.catalog.length < 1 || msg.catalog.length > PDF_MAX_PAGES) {
+        port.postMessage({ type: 'error', id: 0, error: 'Authorization expired.' });
+        return;
+      }
+      const session = createPdfVisualSession({ catalog: msg.catalog, pageByAnchor: msg.pageByAnchor, backend: panelRenderBackend(port) });
+      void setVisualSession(pdfCacheUrl(msg.url), session);
+    };
+    port.onMessage.addListener(onMessage);
   });
 }

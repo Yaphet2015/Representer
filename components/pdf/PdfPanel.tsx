@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PDF_CONTEXT, PDF_VISUAL_CLOSE, PDF_VISUAL_OPEN, isPdfContext, pdfCacheUrl, publicPdfUrl, type PdfContext, type PdfGrant } from '@/lib/pdf-contract';
+import { PDF_CONTEXT, PDF_VISUAL_CLOSE, isPdfContext, pdfCacheUrl, publicPdfUrl, type PdfContext, type PdfGrant } from '@/lib/pdf-contract';
+import { PDF_VISUAL_PORT, isPdfVisualRenderRequest } from '@/lib/pdf-visual-port';
 import type { PdfText } from '@/lib/pdf-text';
 import { pageNeedsVisualInspection } from '@/lib/pdf-text';
 import type { OverviewStatus } from '@/lib/overview-agent';
@@ -58,18 +59,43 @@ function statusLabel(s: OverviewStatus): string {
   if (typeof s === 'object' && 'vision' in s) return s.reason;
   return 'Writing overview…';
 }
-async function openVisualSession(grant: PdfGrant, doc: ReadPdfResult) {
-  const copy = doc.data.slice();
-  const r: unknown = await chrome.runtime.sendMessage({
-    type: PDF_VISUAL_OPEN, url: grant.url, token: grant.token, catalog: doc.catalog, pageByAnchor: doc.pageByAnchor,
-    data: copy.buffer.slice(copy.byteOffset, copy.byteOffset + copy.byteLength),
+type VisualLink = { port: chrome.runtime.Port; close: () => Promise<void> };
+async function openVisualLink(grant: PdfGrant, doc: ReadPdfResult, previous: VisualLink | null): Promise<VisualLink> {
+  if (previous) {
+    try {
+      previous.port.postMessage({ type: 'register', url: grant.url, token: grant.token, catalog: doc.catalog, pageByAnchor: doc.pageByAnchor });
+      return previous;
+    } catch { await previous.close(); }
+  }
+  const { createPdfRenderBackend, webCanvasFactory } = await import('@/lib/pdf-render');
+  const backend = createPdfRenderBackend({
+    data: doc.data.slice(),
+    cMapUrl: chrome.runtime.getURL('/pdf-assets/cmaps/'),
+    standardFontDataUrl: chrome.runtime.getURL('/pdf-assets/standard_fonts/'),
+    canvasFactory: webCanvasFactory(),
   });
-  const ok = !!r && typeof r === 'object' && 'ok' in r && r.ok === true;
-  const err = r && typeof r === 'object' && 'error' in r && typeof r.error === 'string' ? r.error : 'Could not open a page-image session for the model.';
-  if (!ok) throw new Error(err);
-}
-async function closeVisualSession(grant: PdfGrant) {
-  try { await chrome.runtime.sendMessage({ type: PDF_VISUAL_CLOSE, url: grant.url, token: grant.token }); } catch { /* already gone */ }
+  const port = chrome.runtime.connect({ name: PDF_VISUAL_PORT });
+  port.onMessage.addListener((msg: unknown) => {
+    if (!isPdfVisualRenderRequest(msg)) return;
+    void (async () => {
+      try {
+        const page = await backend.render(msg.page);
+        const copy = page.bytes.slice();
+        port.postMessage({ type: 'rendered', id: msg.id, page: page.page, width: page.width, height: page.height, mimeType: page.mimeType, data: copy.buffer.slice(copy.byteOffset, copy.byteOffset + copy.byteLength) });
+      } catch (e) {
+        try { port.postMessage({ type: 'error', id: msg.id, error: e instanceof Error ? e.message : String(e) }); } catch { /* port closed */ }
+      }
+    })();
+  });
+  port.postMessage({ type: 'register', url: grant.url, token: grant.token, catalog: doc.catalog, pageByAnchor: doc.pageByAnchor });
+  return {
+    port,
+    close: async () => {
+      try { port.disconnect(); } catch { /* already gone */ }
+      await backend.close().catch(() => {});
+      try { await chrome.runtime.sendMessage({ type: PDF_VISUAL_CLOSE, url: grant.url, token: grant.token }); } catch { /* already gone */ }
+    },
+  };
 }
 
 type Load = { kind: 'idle' } | { kind: 'loading'; page: number; total: number } | { kind: 'error'; message: string } | { kind: 'ready'; doc: ReadPdfResult };
@@ -78,13 +104,13 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
   const [summary, setSummary] = useState<Summary | null>(null), [partial, setPartial] = useState<Summary | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [status, setStatus] = useState('');
   const [tab, setTab] = useState<'overview' | 'chat'>('overview'), [sourcePage, setSourcePage] = useState<number | null>(null);
-  const operation = useRef(0), ac = useRef<AbortController | null>(null), stream = useRef<ReturnType<typeof streamSummary> | null>(null);
+  const operation = useRef(0), ac = useRef<AbortController | null>(null), stream = useRef<ReturnType<typeof streamSummary> | null>(null), visual = useRef<VisualLink | null>(null);
   const key = pdfCacheUrl(grant.url);
   const validate = useCallback(async () => {
     const r = await context();
     if (r.kind !== 'pdf' || r.grant.token !== grant.token || r.grant.url !== grant.url) throw new Error('The selected tab changed or authorization expired. Click the toolbar button on the PDF again.');
   }, [grant.token, grant.url]);
-  useEffect(() => () => { operation.current++; ac.current?.abort(); stream.current?.stop(); void closeVisualSession(grant); }, [grant]);
+  useEffect(() => () => { operation.current++; ac.current?.abort(); stream.current?.stop(); const link = visual.current; visual.current = null; void link?.close(); }, [grant]);
   const read = async () => {
     const seq = ++operation.current; ac.current?.abort(); const ctrl = new AbortController(); ac.current = ctrl;
     setLoad({ kind: 'loading', page: 0, total: 0 }); setError(''); setSummary(null);
@@ -95,7 +121,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       await validate(); ctrl.signal.throwIfAborted();
       const cached = await rpc('getCached', { url: key, hash: pageHash(doc.content) });
       if (seq !== operation.current) return;
-      try { await openVisualSession(grant, doc); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
+      try { visual.current = await openVisualLink(grant, doc, visual.current); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
       if (seq !== operation.current) return;
       setLoad({ kind: 'ready', doc }); if (cached.ok && cached.cached) setSummary(cached.cached.summary);
     } catch (e) { if (seq === operation.current) setLoad({ kind: 'error', message: ctrl.signal.aborted ? 'Reading cancelled.' : e instanceof Error ? e.message : String(e) }); }
@@ -105,7 +131,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
     const seq = ++operation.current; setBusy(true); setError(''); setStatus(''); setPartial(null);
     try {
       await validate(); if (seq !== operation.current) return;
-      try { await openVisualSession(grant, load.doc); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
+      try { visual.current = await openVisualLink(grant, load.doc, visual.current); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
       if (seq !== operation.current) return;
       const s = streamSummary({ url: key, title: load.doc.title, content: load.doc.content, force }, (p) => { if (seq === operation.current) setPartial(p); }, undefined, undefined, (s) => { if (seq === operation.current) setStatus(statusLabel(s)); });
       stream.current = s; const r = await s.done;
@@ -136,7 +162,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       {error && <p role="alert" className="text-[12px] text-red">{error}</p>}
       {busy && <p role="status" className="text-[12px] text-ink-3">{status || 'Summarizing…'}</p>}
     </div>
-    {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualSession(grant, doc)} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
+    {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
       {shown ? <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc.title} host={new URL(grant.url).hostname} streaming={busy} /></OverviewSource.Provider> : <p className="px-4 text-[13px] leading-6 text-ink-2">All pages have been read locally. Choose Summarize to send the text and allow on-demand page images to your configured model. Nothing is sent until you choose it.</p>}
     </div>)}
     {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} />}

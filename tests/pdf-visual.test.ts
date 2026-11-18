@@ -6,6 +6,7 @@ import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { OVERVIEW_INLINE_MAX, overviewInput, overviewTools, runOverviewAgent, createOverviewDraft } from '../lib/overview-agent';
 import { chunkContent } from '../lib/chunked-overview';
 import { firstBlockIdForPage, inspectCaption, inspectPdfPageTools, isImageInputRejected, createPdfVisualSession, PDF_INSPECT_MAX_PAGES, VISION_UNSUPPORTED } from '../lib/pdf-visual';
+import { panelRenderBackend } from '../lib/pdf-visual-port';
 import { createPdfRenderBackend } from '../lib/pdf-render';
 import { pdfTextDocument } from '../lib/pdf-text';
 import { buildModels } from '../lib/llm';
@@ -139,5 +140,25 @@ describe('overview and long-document visual path', () => {
     const cited = summary.sections[0]?.anchor;
     expect(cited).toBe(anchor);
     expect(cited ? doc.pageByAnchor[cited] : undefined).toBe(50);
+  });
+});
+
+describe('panel render port', () => {
+  it('asks the panel for one page and never holds a render in the worker itself', async () => {
+    const listeners: ((msg: unknown) => void)[] = [];
+    const posted: unknown[] = [];
+    const port = {
+      postMessage(msg: unknown) { posted.push(msg); },
+      onMessage: { addListener(f: (msg: unknown) => void) { listeners.push(f); } },
+      onDisconnect: { addListener() {} },
+    };
+    const backend = panelRenderBackend(port);
+    const job = backend.render(2);
+    expect(posted).toEqual([{ type: 'render', id: 1, page: 2 }]);
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    listeners[0]!({ type: 'rendered', id: 1, page: 2, width: 10, height: 8, mimeType: 'image/png', data: bytes.buffer });
+    const out = await job;
+    expect(out).toMatchObject({ page: 2, width: 10, height: 8, mimeType: 'image/png' });
+    expect([...out.bytes]).toEqual([1, 2, 3, 4]);
   });
 });

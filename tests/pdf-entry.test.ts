@@ -15,7 +15,7 @@ beforeEach(() => {
   open = vi.fn(async () => {}); setOptions = vi.fn(async () => {}); setPanelBehavior = vi.fn(async () => {}); close = vi.fn(async () => {});
   toggle = vi.fn(async () => {}); send = vi.fn(async () => { throw new Error('No receiver'); });
   vi.stubGlobal('chrome', {
-    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, sendMessage: vi.fn(async () => {}) },
+    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: event(), sendMessage: vi.fn(async () => {}) },
     storage: { session: { get: async (k: string) => ({ [k]: session[k] }), set: async (v: Record<string, unknown>) => { Object.assign(session, v); }, remove: async (k: string) => { delete session[k]; } } },
     action: { onClicked: action }, sidePanel: { open, close, setOptions, setPanelBehavior },
     tabs: { onUpdated: updated, onRemoved: removed, query: async () => [tab], sendMessage: send },

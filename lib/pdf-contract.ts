@@ -31,23 +31,5 @@ export function isPdfAuthorization(v: unknown): v is PdfAuthorization {
   return isPdfContext({ kind: 'pdf', grant: v }) && !!v && typeof v === 'object' && 'at' in v && typeof v.at === 'number' && Number.isFinite(v.at);
 }
 export const pdfCacheUrl = (url: string) => `pdf:v1:${url}`;
-
-export const PDF_VISUAL_OPEN = 'rp-pdf-visual-open';
 export const PDF_VISUAL_CLOSE = 'rp-pdf-visual-close';
-export interface PdfVisualOpenRequest {
-  type: typeof PDF_VISUAL_OPEN;
-  url: string;
-  token: string;
-  catalog: { page: number; chars: number; hasText: boolean; hasImages: boolean }[];
-  pageByAnchor: Record<string, number>;
-  data: ArrayBuffer;
-}
 export interface PdfVisualCloseRequest { type: typeof PDF_VISUAL_CLOSE; url: string; token: string }
-
-export function isPdfVisualOpenRequest(v: unknown): v is PdfVisualOpenRequest {
-  if (!v || typeof v !== 'object' || !('type' in v) || v.type !== PDF_VISUAL_OPEN) return false;
-  if (!('url' in v) || typeof v.url !== 'string' || !('token' in v) || typeof v.token !== 'string') return false;
-  if (!('data' in v) || !(v.data instanceof ArrayBuffer)) return false;
-  if (!('catalog' in v) || !Array.isArray(v.catalog) || !('pageByAnchor' in v) || typeof v.pageByAnchor !== 'object' || !v.pageByAnchor) return false;
-  return true;
-}
