@@ -1,3 +1,4 @@
+import { PDF_DOCUMENT, PDF_PING } from '@/lib/pdf-contract';
 import ReactDOM from 'react-dom/client';
 import { App } from '@/components/App';
 import { LangProvider } from '@/components/i18n';
@@ -67,6 +68,11 @@ export default defineContentScript({
     installFrameWorker();
     const isTop = window === window.top;
     if (!isTop) return;
+    const kind = document.contentType === 'application/pdf' ? 'pdf' : 'html';
+    chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+      if (msg?.type === PDF_PING) { reply({ kind }); return false; }
+    });
+    void chrome.runtime.sendMessage({ type: PDF_DOCUMENT, kind }).catch(() => {});
     if (import.meta.env.VITE_RP_DIAG === '1') installDiag(); // dev diagnostics build only
 
     let ui: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;

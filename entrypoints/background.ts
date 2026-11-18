@@ -1,3 +1,4 @@
+import { installPdfEntry } from '@/lib/pdf-entry';
 import { createCache, pageHash } from '@/lib/cache';
 import { createFrameRelay } from '@/lib/frame-relay';
 import { CHAT_PORT, SUMMARY_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
@@ -29,7 +30,7 @@ export default defineBackground(() => {
     if (cmd !== COMMAND) return;
     toggle(tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
   });
-  chrome.action.onClicked.addListener((tab) => toggle(tab.id));
+  installPdfEntry(toggle);
 
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
   const handlers: Handlers = {

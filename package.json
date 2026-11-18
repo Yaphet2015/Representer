@@ -38,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "defuddle": "^0.19.5",
     "framer-motion": "^14.2.0",
+    "pdfjs-dist": "6.5.438",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "streamdown": "^2.7.0",

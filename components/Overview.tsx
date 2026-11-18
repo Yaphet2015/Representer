@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { parseMarks, stripMarks } from '@/lib/highlight';
 import { cleanQuoteText } from '@/lib/parse';
 import { jumpToFingerprint, getLastMergedPage } from '@/lib/frame-bridge';
@@ -11,6 +11,9 @@ import { Button } from './bui/Button';
 import { CopyButton } from './CopyButton';
 import { overviewMarkdown } from '@/lib/copy';
 import LoadingState from './bui/LoadingState';
+
+/** Alternate sources (e.g. PDF pages) never resolve against the webpage DOM. */
+export const OverviewSource = createContext<{ label: string; canLocate: (item: Item) => boolean; locate: (item: Item) => void } | null>(null);
 
 /** the blinking end of the text still being written */
 const Caret = () => <span data-caret aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse rounded-full bg-accent align-baseline" />;
@@ -33,8 +36,10 @@ const quoteItem = (summary: Summary): Item | null => (summary.quote ? { anchor: 
  * that loads late or shifts the page doesn't break the links; clicks resolve again anyway.
  */
 function useLocatable(summary: Summary, anchors: Anchors | undefined, enabled = true) {
+  const source = useContext(OverviewSource);
   const [ok, setOk] = useState<Set<string>>(new Set());
   useEffect(() => {
+    if (source) { setOk(new Set(itemsOf(summary).filter(([, it]) => source.canLocate(it)).map(([k]) => k))); return; }
     if (!enabled) return; // still streaming: no anchors yet, and re-indexing the page on every chunk is wasted work
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
@@ -60,15 +65,17 @@ function useLocatable(summary: Summary, anchors: Anchors | undefined, enabled = 
     const mo = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(check, 500); });
     if (document.body) mo.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => { mo.disconnect(); clearTimeout(timer); };
-  }, [summary, anchors, enabled]);
+  }, [summary, anchors, enabled, source]);
   return ok;
 }
 
 /** Jump target: resolves again on click, so it follows the page as it is now (or silently no-ops). Not a <button>, so terms inside can be buttons. */
 function Jump({ item, anchors, enabled, className, children, onLocateFail }: { item: Item; anchors?: Anchors; enabled: boolean; className: string; children: ReactNode; onLocateFail?: (kind: 'stale' | 'missing') => void }) {
   const t = useT();
+  const source = useContext(OverviewSource);
   if (!enabled) return <span className={className}>{children}</span>;
   const go = async () => {
+    if (source) { source.locate(item); return; }
     const fp = item.anchor ? anchors?.[item.anchor] : undefined;
     if (fp && ((fp.sk && fp.sk !== 'top') || (fp.f != null && fp.f !== TOP_FRAME_ID))) {
       const r = await jumpToFingerprint(fp);
@@ -84,7 +91,7 @@ function Jump({ item, anchors, enabled, className, children, onLocateFail }: { i
   };
   return (
     <span
-      role="button" tabIndex={0} aria-label={t.jumpToSource}
+      role="button" tabIndex={0} aria-label={source?.label ?? t.jumpToSource}
       onClick={() => { void go(); }}
       onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); void go(); } }}
       className={`${className} -mx-1.5 cursor-pointer rounded-[6px] px-1.5 text-left transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring`}
