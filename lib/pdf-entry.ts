@@ -7,10 +7,18 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   const generations = new Map<number, number>();
   const key = (id: number) => `pdf-authorization:${id}`;
   // Session storage survives service-worker suspension, not a browser restart. No PDF bytes/text or settings here.
+  const disablePanel = (id: number) => {
+    void chrome.sidePanel.setOptions({ tabId: id, enabled: false });
+    if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: id }).catch(() => {});
+  };
   const forget = (id: number) => {
     documents.delete(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
     void chrome.storage.session.remove(key(id));
+    disablePanel(id);
   };
+  // Manifest default_path would otherwise open a global panel that follows ordinary tabs.
+  void chrome.sidePanel.setOptions({ enabled: false });
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
   chrome.tabs.onRemoved.addListener(forget);
   chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'loading' || (info.url && publicPdfUrl(info.url) !== grants.get(id)?.url)) forget(id); });
   chrome.action.onClicked.addListener((tab) => {
@@ -23,6 +31,8 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
     generations.set(id, (generations.get(id) ?? 0) + 1); grants.set(id, grant);
     void chrome.storage.session.set({ [key(id)]: grant });
     // Must be called directly in this gesture, not after HEAD/fetch. Unknown pages are identified in the panel.
+    // setOptions must not be awaited: open() has to stay in the user-gesture turn.
+    void chrome.sidePanel.setOptions({ tabId: id, path: 'pdf-panel.html', enabled: true });
     void chrome.sidePanel.open({ tabId: id }).catch(() => {});
     void chrome.runtime.sendMessage({ type: 'rp-pdf-selected' }).catch(() => {});
   });

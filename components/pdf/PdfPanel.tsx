@@ -20,12 +20,23 @@ export function PdfPanel() {
   const theme = useTheme(); const [ctx, setCtx] = useState<PdfContext>({ kind: 'none' });
   const requests = useRef(0), selected = useRef<PdfGrant | null>(null);
   useEffect(() => {
-    const refresh = () => { const seq = ++requests.current; setCtx({ kind: 'none' }); void context().then((r) => { if (seq === requests.current) { selected.current = r.kind === 'pdf' ? r.grant : null; setCtx(r); } }); };
+    const apply = (r: PdfContext) => { selected.current = r.kind === 'pdf' ? r.grant : null; setCtx(r); };
+    const refresh = () => { const seq = ++requests.current; void context().then((r) => { if (seq === requests.current) apply(r); }); };
     refresh();
+    const activate = (info: { tabId: number }) => {
+      const seq = ++requests.current;
+      void context().then((r) => {
+        if (seq !== requests.current) return;
+        const g = selected.current;
+        // Another tab became active: keep this tab's reader. A tab-specific panel should be hidden there.
+        if (r.kind !== 'pdf' && g && g.tabId !== info.tabId) return;
+        apply(r);
+      });
+    };
     const update = (id: number, info: chrome.tabs.OnUpdatedInfo) => { const g = selected.current; if (g?.tabId === id && (info.status === 'loading' || (info.url && publicPdfUrl(info.url) !== g.url))) refresh(); };
     const message = (msg: unknown) => { if (msg && typeof msg === 'object' && 'type' in msg && msg.type === 'rp-pdf-selected') refresh(); };
-    chrome.tabs.onActivated.addListener(refresh); chrome.tabs.onUpdated.addListener(update); chrome.runtime.onMessage.addListener(message);
-    return () => { requests.current++; chrome.tabs.onActivated.removeListener(refresh); chrome.tabs.onUpdated.removeListener(update); chrome.runtime.onMessage.removeListener(message); };
+    chrome.tabs.onActivated.addListener(activate); chrome.tabs.onUpdated.addListener(update); chrome.runtime.onMessage.addListener(message);
+    return () => { requests.current++; chrome.tabs.onActivated.removeListener(activate); chrome.tabs.onUpdated.removeListener(update); chrome.runtime.onMessage.removeListener(message); };
   }, []);
   return <main data-theme={theme} className="relative flex h-screen min-w-0 flex-col bg-page font-sans text-ink antialiased">
     <header className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3"><h1 className="text-[15px] font-[650]">Representer <span className="text-ink-3">/ PDF</span></h1><Button variant="quiet" size="sm" onClick={() => { void chrome.runtime.openOptionsPage(); }}>Settings</Button></header>

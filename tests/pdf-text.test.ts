@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PDF_MAX_BYTES, PDF_MAX_CHARS, PDF_MAX_PAGES, pdfTextDocument, readPdfBytes } from '../lib/pdf-text';
+import { PDF_MAX_BYTES, PDF_MAX_CHARS, PDF_MAX_PAGES, PDF_WORD_SPACE_EM, joinPdfTextItems, pdfTextDocument, readPdfBytes, type PdfGlyphRun } from '../lib/pdf-text';
 import { chunkContent } from '../lib/chunked-overview';
 import { OVERVIEW_INLINE_MAX } from '../lib/overview-agent';
 import { pdfCacheUrl, publicPdfUrl } from '../lib/pdf-contract';
@@ -59,5 +59,42 @@ describe('user-selected HTTP(S) PDF URL policy', () => {
   });
   it('rejects local/private URLs, alternate numeric IP spellings, credentials and other schemes', () => {
     for (const u of ['file:///a.pdf', 'chrome://settings', 'http://localhost/a', 'http://x.local/a', 'http://10.0.0.1/a', 'http://127.1/a', 'http://2130706433/a', 'http://0x7f000001/a', 'http://172.31.1.1/a', 'http://192.168.2.3/a', 'http://169.254.169.254/a', 'http://[::1]/a', 'https://u:p@site.com/a']) expect(publicPdfUrl(u), u).toBeNull();
+  });
+});
+
+describe('PDF.js item joining (geometry, not dictionary merge)', () => {
+  const em = 12;
+  const run = (str: string, x: number, opts: Partial<PdfGlyphRun> & { y?: number; size?: number } = {}): PdfGlyphRun => {
+    const size = opts.size ?? em, y = opts.y ?? 0, width = opts.width ?? str.length * 6;
+    return { str, width, height: opts.height ?? size, hasEOL: opts.hasEOL ?? false, transform: [size, 0, 0, size, x, y] };
+  };
+  it('joins mid-word fragments across a tight gap (font-change flush) and does not invent "tradema rks"', () => {
+    expect(joinPdfTextItems([run('tradema', 0, { width: 50 }), run('rks', 50.5, { width: 20 })])).toBe('trademarks');
+    expect(joinPdfTextItems([
+      run('re', 0, { width: 12 }), run('sp', 12.5, { width: 12 }), run('ective', 25, { width: 36 }),
+    ])).toBe('respective');
+  });
+  it('does not glue fragments that only look like a word when the gap is a typographic word space', () => {
+    expect(joinPdfTextItems([run('tradema', 0, { width: 50 }), run('rks', 50 + em * 0.3, { width: 20 })])).toBe('tradema rks');
+  });
+  it('inserts a single space for a typographic word gap, including when PDF.js did not emit a space character', () => {
+    expect(joinPdfTextItems([run('respective', 0, { width: 60 }), run('owners', 60 + em * 0.33, { width: 40 })])).toBe('respective owners');
+  });
+  it('does not double spaces already present in item text or whitespace items', () => {
+    expect(joinPdfTextItems([run('trade ', 0, { width: 36 }), run('names', 36 + em, { width: 30 })])).toBe('trade names');
+    expect(joinPdfTextItems([run('trade', 0, { width: 30 }), run(' ', 30, { width: em }), run('names', 42, { width: 30 })])).toBe('trade names');
+  });
+  it('does not insert spaces between adjacent CJK glyphs, and keeps an intentional column gap as a separator', () => {
+    const glyphs = [...'青竹计划'].map((ch, i) => run(ch, i * em, { width: em }));
+    expect(joinPdfTextItems(glyphs)).toBe('青竹计划');
+    expect(joinPdfTextItems([run('左栏', 0, { width: 24 }), run('右栏', 250, { width: 24 })])).toBe('左栏 右栏');
+  });
+  it('keeps two English columns as separate words and uses hasEOL rather than a space for a new line', () => {
+    expect(joinPdfTextItems([run('L9: method A', 48, { width: 80 }), run('R9: result 27', 300, { width: 80 })])).toBe('L9: method A R9: result 27');
+    expect(joinPdfTextItems([run('first', 0, { width: 30, hasEOL: true }), run('second', 0, { y: -16, width: 40 })])).toBe('first\nsecond');
+  });
+  it('skips marked-content objects and uses the PDF.js in-flow threshold', () => {
+    expect(PDF_WORD_SPACE_EM).toBe(0.102);
+    expect(joinPdfTextItems([{ type: 'beginMarkedContent' }, run('A', 0, { width: 8 }), { type: 'endMarkedContent' }, run('B', 8.2, { width: 8 })])).toBe('AB');
   });
 });

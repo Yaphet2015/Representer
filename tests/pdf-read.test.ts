@@ -24,4 +24,18 @@ describe('PDF.js full text extraction', () => {
   });
   it('explains image-only/empty files', async () => { fixture('pdf-blank.pdf'); await expect(readPdf('https://a.com/x', new AbortController().signal, () => {})).rejects.toThrow(/No selectable text/); });
   it('rejects password protection without prompting or hanging', async () => { fixture('pdf-password.pdf'); await expect(readPdf('https://a.com/x', new AbortController().signal, () => {})).rejects.toThrow(/Password-protected/); });
+  it('joins mid-word font-change fragments and keeps typographic word/column spaces, without dictionary merging', async () => {
+    fixture('pdf-spacing.pdf');
+    const doc = await readPdf('https://files.example.org/spacing', new AbortController().signal, () => {});
+    expect(doc.pages).toHaveLength(1);
+    const page = doc.pages[0]!;
+    expect(page).toContain('trademarks MARK-KERN');
+    expect(page).not.toContain('tradema rks');
+    expect(page).toContain('respective tradenames MARK-WORD');
+    expect(page).not.toMatch(/re\s+sp\s+ective/);
+    expect(page).not.toContain('trade na mes');
+    expect(page).toContain('already spaced words MARK-PRESERVE');
+    expect(page).toContain('L9: method A');
+    expect(page).toContain('R9: result 27 MARK-COLS');
+  });
 });

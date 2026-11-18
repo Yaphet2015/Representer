@@ -5,18 +5,19 @@ import { PDF_CONTEXT, PDF_DOCUMENT } from '../lib/pdf-contract';
 type Listener = (...args: any[]) => any;
 function event() { const listeners: Listener[] = []; return { clear() { listeners.length = 0; }, addListener(f: Listener) { listeners.push(f); }, fire(...args: any[]) { return listeners.map((f) => f(...args)); } }; }
 let action: ReturnType<typeof event>, messages: ReturnType<typeof event>, updated: ReturnType<typeof event>, removed: ReturnType<typeof event>;
-let open: ReturnType<typeof vi.fn>, send: ReturnType<typeof vi.fn>;
+let open: ReturnType<typeof vi.fn>, send: ReturnType<typeof vi.fn>, setOptions: ReturnType<typeof vi.fn>, setPanelBehavior: ReturnType<typeof vi.fn>, close: ReturnType<typeof vi.fn>;
 let toggle: (id?: number) => Promise<void>;
 let session: Record<string, unknown>;
 let tab: { id: number; url: string };
 beforeEach(() => {
   session = {};
   action = event(); messages = event(); updated = event(); removed = event(); tab = { id: 8, url: 'https://files.example.org/no-extension' };
-  open = vi.fn(async () => {}); toggle = vi.fn(async () => {}); send = vi.fn(async () => { throw new Error('No receiver'); });
+  open = vi.fn(async () => {}); setOptions = vi.fn(async () => {}); setPanelBehavior = vi.fn(async () => {}); close = vi.fn(async () => {});
+  toggle = vi.fn(async () => {}); send = vi.fn(async () => { throw new Error('No receiver'); });
   vi.stubGlobal('chrome', {
     runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, sendMessage: vi.fn(async () => {}) },
     storage: { session: { get: async (k: string) => ({ [k]: session[k] }), set: async (v: Record<string, unknown>) => { Object.assign(session, v); }, remove: async (k: string) => { delete session[k]; } } },
-    action: { onClicked: action }, sidePanel: { open, close: vi.fn(async () => {}) },
+    action: { onClicked: action }, sidePanel: { open, close, setOptions, setPanelBehavior },
     tabs: { onUpdated: updated, onRemoved: removed, query: async () => [tab], sendMessage: send },
   });
   installPdfEntry(async (id) => { await toggle(id); });
@@ -66,5 +67,33 @@ describe('toolbar routing and PDF user-action capability', () => {
     action.fire({ id: 8, url: 'http://127.0.0.1/doc' }); expect(open).not.toHaveBeenCalled();
     action.fire(tab); const now = Date.now(); const spy = vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 60_000);
     expect((await ctx()).kind).toBe('none'); spy.mockRestore();
+  });
+  it('disables the global side panel at startup so it cannot follow ordinary tabs', () => {
+    expect(setOptions).toHaveBeenCalledWith({ enabled: false });
+    expect(setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: false });
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+  it('enables a tab-specific panel and opens it in the same user-gesture turn, without awaiting setOptions', () => {
+    let finish: (v?: void) => void = () => {};
+    setOptions.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    action.fire(tab);
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, path: 'pdf-panel.html', enabled: true });
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    const enable = setOptions.mock.calls.findIndex((c) => c[0] && typeof c[0] === 'object' && 'tabId' in c[0] && c[0].enabled === true);
+    expect(enable).toBeGreaterThanOrEqual(0);
+    expect(setOptions.mock.invocationCallOrder[enable]!).toBeLessThan(open.mock.invocationCallOrder[0]!);
+    finish();
+  });
+  it("disables that tab's panel on navigation and does not enable a global panel for a known webpage", () => {
+    action.fire(tab);
+    updated.fire(8, { status: 'loading' });
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, enabled: false });
+    expect(close).toHaveBeenCalledWith({ tabId: 8 });
+    setOptions.mockClear(); open.mockClear();
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    action.fire(tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
 });

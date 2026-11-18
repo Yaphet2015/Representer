@@ -11,6 +11,7 @@ vi.mock('../lib/pdf-read', () => ({ readPdf: read }));
 let root: Root, host: HTMLElement;
 let rpc: ReturnType<typeof vi.fn>, connect: ReturnType<typeof vi.fn>, setStorage: ReturnType<typeof vi.fn>;
 let changed: ((id: number, info: { status: string }) => void) | undefined;
+let activated: ((info: { tabId: number }) => void) | undefined;
 let active = true;
 const grant = { tabId: 8, url: 'https://files.example.org/doc', token: 'clicked' };
 const summary = { overview: 'Synthetic summary', sections: [{ title: 'Second-page finding', icon: 'list', anchor: 'p2', bullets: ['A repeated sentence'], anchors: ['p2'] }] };
@@ -29,7 +30,7 @@ beforeEach(() => {
   });
   vi.stubGlobal('chrome', {
     runtime: { sendMessage: rpc, connect, openOptionsPage: vi.fn(), onMessage: noListeners() },
-    tabs: { onActivated: noListeners(), onUpdated: { addListener: (f: typeof changed) => { changed = f; }, removeListener: vi.fn() } },
+    tabs: { onActivated: { addListener: (f: typeof activated) => { activated = f; }, removeListener: vi.fn() }, onUpdated: { addListener: (f: typeof changed) => { changed = f; }, removeListener: vi.fn() } },
     storage: { local: { get: async () => ({}), set: setStorage, remove: setStorage }, onChanged: noListeners() },
   });
   root = createRoot(host);
@@ -60,5 +61,18 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
     await act(async () => changed?.(9, { status: 'loading' })); await settle();
     expect(host.textContent).toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1);
+  });
+  it('does not drop extracted text or show the idle sidebar when an ordinary tab becomes active', async () => {
+    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    rpc.mockImplementation(async (msg) => {
+      if (msg.type === PDF_CONTEXT) return { kind: 'none' };
+      if (msg.type === 'getCached') return { ok: true, cached: { summary } };
+      return { ok: false };
+    });
+    await act(async () => activated?.({ tabId: 9 })); await settle();
+    expect(host.textContent).toContain('Synthetic summary');
+    expect(host.textContent).toContain('2 pages');
+    expect(host.textContent).not.toMatch(/Open a public HTTP\(S\) PDF/);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

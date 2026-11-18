@@ -1,7 +1,7 @@
 /** Loaded only by the PDF side panel, after the reader clicks Read PDF. Never imported by the webpage bundle. */
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
-import { PDF_MAX_CHARS, PDF_MAX_PAGES, pdfTextDocument, readPdfBytes, type PdfText } from './pdf-text';
+import { PDF_MAX_CHARS, PDF_MAX_PAGES, joinPdfTextItems, pdfTextDocument, readPdfBytes, type PdfText } from './pdf-text';
 GlobalWorkerOptions.workerSrc = workerUrl;
 
 export async function readPdf(url: string, outer: AbortSignal, progress: (page: number, total: number) => void): Promise<PdfText> {
@@ -24,13 +24,11 @@ export async function readPdf(url: string, outer: AbortSignal, progress: (page: 
       signal.throwIfAborted(); progress(n, pdf.numPages);
       const page = await pdf.getPage(n);
       try {
-        const content = await page.getTextContent(); const parts: string[] = [];
-        for (const item of content.items) if ('str' in item) {
-          chars += item.str.length + 1;
-          if (chars > PDF_MAX_CHARS) throw new Error(`PDF text exceeds ${PDF_MAX_CHARS.toLocaleString()} characters. Nothing was summarized; use a smaller document.`);
-          parts.push(item.str + (item.hasEOL ? '\n' : ' '));
-        }
-        pages.push(parts.join('').trim());
+        const content = await page.getTextContent();
+        const text = joinPdfTextItems(content.items);
+        chars += text.length + 1;
+        if (chars > PDF_MAX_CHARS) throw new Error(`PDF text exceeds ${PDF_MAX_CHARS.toLocaleString()} characters. Nothing was summarized; use a smaller document.`);
+        pages.push(text);
       } finally { page.cleanup(); }
     }
     signal.throwIfAborted();
