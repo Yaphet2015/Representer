@@ -15,7 +15,7 @@ import { readTools } from './page-tools';
 import { partialFromObject } from './partial-json';
 import { MAX_CONTENT_CHARS } from './prompts';
 import { detectSteps, missingSteps } from './steps';
-import { inspectPdfPageTools, type PdfVisualSession } from './pdf-visual';
+import { inspectPdfPageTools, VisionUnsupportedError, type PdfVisualSession } from './pdf-visual';
 import { pdfVisualGuide } from './prompts';
 import { ICON_TYPES, type Summary } from './types';
 
@@ -355,6 +355,7 @@ export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promis
         reply = await deps.turn(o.visual ? `${o.instructions}\n\n${pdfVisualGuide()}` : o.instructions, t === 0 ? input : continuation(draft, input, stop), tools, run.signal, budget, (r) => { stop = r; }, streamArgs);
       } catch (e) {
         if (o.signal?.aborted) throw new AbortError();
+        if (e instanceof VisionUnsupportedError) throw e;
         if (draft.finished || outOfTime || outOfCalls) break;
         if (isMaxTokensError(e) && budget > SAFE_MAX_OUTPUT) { budget = SAFE_MAX_OUTPUT; t--; continue; }
         if (t === 0 && outputs === 0 && calls === 0 && isToolsUnsupportedError(e)) throw new ToolsUnsupported(String((e as any)?.message ?? e));

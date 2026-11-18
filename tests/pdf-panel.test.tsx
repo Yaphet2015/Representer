@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PdfPanel } from '../components/pdf/PdfPanel';
 import { pdfTextDocument } from '../lib/pdf-text';
 import { PDF_CONTEXT } from '../lib/pdf-contract';
+import { SUMMARY_PORT } from '../lib/messages';
+import { VISION_UNSUPPORTED } from '../lib/pdf-visual';
 
 const read = vi.hoisted(() => vi.fn());
 vi.mock('../lib/pdf-read', () => ({ readPdf: read }));
@@ -42,6 +44,9 @@ beforeEach(() => {
     tabs: { onActivated: { addListener: (f: typeof activated) => { activated = f; }, removeListener: vi.fn() }, onUpdated: { addListener: (f: typeof changed) => { changed = f; }, removeListener: vi.fn() } },
     storage: { local: { get: async () => ({}), set: setStorage, remove: setStorage }, onChanged: noListeners() },
   });
+  if (typeof URL.createObjectURL !== 'function') {
+    Object.assign(URL, { createObjectURL: () => 'blob:test-pdf-page', revokeObjectURL: () => {} });
+  }
   root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); vi.unstubAllGlobals(); });
@@ -62,6 +67,9 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     await act(async () => source!.click()); await settle();
     expect(host.querySelector('[aria-label="PDF page 2"]')).toBeTruthy();
     expect(host.querySelector('pre')?.textContent).toBe('Second page. Repeated sentence.');
+    const img = host.querySelector<HTMLImageElement>('img[alt="Rendered PDF page 2"]');
+    expect(img).toBeTruthy();
+    expect(img?.getAttribute('src')).toMatch(/^(blob:|data:)/);
     expect(setStorage).not.toHaveBeenCalled(); expect(connect.mock.calls.every((c) => c[0]?.name === "pdf-visual")).toBe(true);
   });
   it('invalidates extracted text on a navigation and does not automatically re-download', async () => {
@@ -87,5 +95,63 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     expect(host.textContent).toContain('2 pages');
     expect(host.textContent).not.toMatch(/Open a public HTTP\(S\) PDF/);
     expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a partial inspect report after summarize and does not imply the whole PDF was seen', async () => {
+    rpc.mockImplementation(async (msg) => {
+      if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
+      if (msg.type === 'getCached') return { ok: true };
+      if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
+      return { ok: false };
+    });
+    const listeners: Array<(e: unknown) => void> = [];
+    connect.mockImplementation((info?: { name?: string }) => {
+      if (info?.name === 'pdf-visual') return { name: 'pdf-visual', postMessage: vi.fn(), disconnect: vi.fn(), onMessage: noListeners(), onDisconnect: noListeners() };
+      if (info?.name === SUMMARY_PORT) {
+        return {
+          name: SUMMARY_PORT,
+          postMessage: vi.fn(() => { queueMicrotask(() => listeners.forEach((f) => f({ done: true, summary, visualInspect: { inspected: [2], total: 59, budget: 10, remaining: 58 } }))); }),
+          disconnect: vi.fn(),
+          onMessage: { addListener: (f: (e: unknown) => void) => { listeners.push(f); }, removeListener: vi.fn() },
+          onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() },
+        };
+      }
+      throw new Error('unexpected port ' + info?.name);
+    });
+    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await clickText('Summarize with my model');
+    expect(host.textContent).toContain('Synthetic summary');
+    expect(host.textContent).toContain('1 of 59');
+    expect(host.textContent).toContain('not a full visual reading');
+    expect(host.textContent).toContain('not renewable mid-run');
+  });
+  it('keeps an unsupported-vision failure as an error and does not show a successful overview', async () => {
+    rpc.mockImplementation(async (msg) => {
+      if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
+      if (msg.type === 'getCached') return { ok: true };
+      if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
+      return { ok: false };
+    });
+    const listeners: Array<(e: unknown) => void> = [];
+    connect.mockImplementation((info?: { name?: string }) => {
+      if (info?.name === 'pdf-visual') return { name: 'pdf-visual', postMessage: vi.fn(), disconnect: vi.fn(), onMessage: noListeners(), onDisconnect: noListeners() };
+      if (info?.name === SUMMARY_PORT) {
+        return {
+          name: SUMMARY_PORT,
+          postMessage: vi.fn(() => { queueMicrotask(() => listeners.forEach((f) => f({ error: VISION_UNSUPPORTED }))); }),
+          disconnect: vi.fn(),
+          onMessage: { addListener: (f: (e: unknown) => void) => { listeners.push(f); }, removeListener: vi.fn() },
+          onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() },
+        };
+      }
+      throw new Error('unexpected port ' + info?.name);
+    });
+    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await clickText('Summarize with my model');
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('did not accept page images');
+    expect(alert?.textContent).toContain('A text-only fallback was not used');
+    expect(alert?.textContent).toContain('Choose a vision-capable');
+    expect(host.textContent).not.toContain('Synthetic summary');
   });
 });

@@ -42,6 +42,14 @@ describe('PDF document boundaries and source pages', () => {
     const catalog = formatPdfPageCatalog(mixed.catalog, 10);
     expect(catalog).toContain('inspect_pdf_page');
     expect(catalog).toContain('contains images or painted figures');
+    expect(catalog).toContain('hasImages false only means no image paint operators were detected');
+    expect(catalog).toContain('it is not a reason to skip visualization');
+    expect(catalog).toContain('not renewable mid-run');
+    expect(catalog).toContain('do not claim uninspected pages were visually read');
+    expect(catalog).toMatch(/1: .*no image paint operators detected; vector charts/);
+    const dense = formatPdfPageCatalog([{ page: 1, chars: 5000, hasText: true, hasImages: false }], 10);
+    expect(dense).toContain('still inspect if a chart, diagram, table or layout could matter');
+    expect(dense).toContain('do not skip inspect_pdf_page because of this flag');
     expect(catalog).not.toMatch(/iVBOR|image\/png|AAAA/); // never embeds image bytes
   });
   it('does not collide with the existing webpage summary or chat cache namespace', () => { expect(pdfCacheUrl('https://a.com/doc')).toBe('pdf:v1:https://a.com/doc'); });

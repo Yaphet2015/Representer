@@ -4,6 +4,7 @@ import type { SummaryEvent, SummaryRequest } from './messages';
 import type { createSummarizeRunner } from './summarize-run';
 import type { Summary } from './types';
 import type { SummarizeHooks } from './provider';
+import type { VisualInspectReport } from './pdf-visual';
 
 export interface PortLike {
   postMessage(e: SummaryEvent): void;
@@ -17,6 +18,7 @@ export function serveSummaryPort(
     cache: ReturnType<typeof createCache>;
     runner: ReturnType<typeof createSummarizeRunner>;
     summarize: (req: SummaryRequest, signal: AbortSignal, onDelta: (t: string) => void, onThinking: (t: string) => void, more: Required<Pick<SummarizeHooks, 'onPartial' | 'onStatus'>>) => Promise<Summary>;
+    visualInspect?(url: string): VisualInspectReport | undefined;
   },
 ) {
   const ac = new AbortController();
@@ -29,7 +31,7 @@ export function serveSummaryPort(
       const r = await deps.runner.run(req, (signal) => deps.summarize(req, signal, (delta) => { if (delta && !signal.aborted) post({ delta }); },
         (thinking) => { if (thinking && !signal.aborted) post({ thinking }); },
         { onPartial: (partial) => { if (!signal.aborted) post({ partial }); }, onStatus: (status) => { if (!signal.aborted) post({ status }); } }), ac.signal);
-      post('cancelled' in r ? { cancelled: true } : { done: true, summary: r.summary, anchors: r.anchors });
+      post('cancelled' in r ? { cancelled: true } : { done: true, summary: r.summary, anchors: r.anchors, visualInspect: deps.visualInspect?.(req.url) });
     } catch (e: any) {
       post({ error: String(e?.message ?? e) }); // also mid-stream: the panel drops the partial overview and shows the error
     }

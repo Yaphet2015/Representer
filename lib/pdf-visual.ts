@@ -119,7 +119,7 @@ export function inspectPdfPageTools(session: PdfVisualSession, hooks: { onInspec
   return [
     defineTool({
       name: 'inspect_pdf_page',
-      description: 'Render one PDF page as an image so you can read charts, figures, photos or scanned wording that the text layer may omit. Pass a 1-based page number. Use this for pages the catalog marks for inspection, image-only/scanned pages, and any page whose figures matter. Do not inspect every page.',
+      description: 'Render one PDF page as an image so you can read charts, figures, photos, vector drawings or scanned wording that the text layer may omit. Pass a 1-based page number. Prefer pages the catalog marks inspect first, image-only or scanned pages, and any page whose figures, charts, diagrams or layout may matter. A page with no detected image paint operators can still contain vector charts; do not skip it for that reason. This run has a fixed page-image budget that is not renewable mid-run; if it is reached, say which pages were and were not inspected and do not claim uninspected pages were visually read.',
       parameters: Type.Object({ page: Type.Number({ description: '1-based PDF page number' }) }),
       replay: 'unsafe',
       execute: async (args) => {
@@ -153,4 +153,33 @@ export function isImageInputRejected(e: unknown): boolean {
   return /400|415|unsupported|not support|invalid|unknown|not allowed|cannot/i.test(s);
 }
 
-export const VISION_UNSUPPORTED = 'This model or API did not accept page images, so charts, figures and scanned wording were not visually read. Use a vision-capable OpenAI-compatible model, or do not treat missing figures as absent.';
+export const VISION_UNSUPPORTED = 'This model or API did not accept page images, so charts, figures and scanned wording were not visually read. Choose a vision-capable OpenAI-compatible model in Settings. A text-only fallback was not used.';
+export const VISION_TOOLS_UNSUPPORTED = 'This model cannot call tools, so page images cannot be inspected. Choose a vision-capable OpenAI-compatible model that supports tool calling, in Settings. A text-only fallback was not used.';
+
+export class VisionUnsupportedError extends Error {
+  readonly code = 'vision-unsupported' as const;
+  constructor(message = VISION_UNSUPPORTED) {
+    super(message);
+    this.name = 'VisionUnsupportedError';
+  }
+}
+
+export type VisualInspectReport = { inspected: readonly number[]; total: number; budget: number; remaining: number };
+export function visualInspectReport(session: PdfVisualSession): VisualInspectReport {
+  const inspected = session.inspected();
+  const total = session.catalog.length;
+  return { inspected, total, budget: session.inspectBudget, remaining: Math.max(0, total - inspected.length) };
+}
+export function formatVisualInspectReport(r: VisualInspectReport): string {
+  if (r.total <= 0) return '';
+  if (r.inspected.length === 0) {
+    return `No page images were inspected in this run (${r.total} pages available; at most ${r.budget} per run). This result is not a visual reading of the document. A later summarize or chat run can inspect pages.`;
+  }
+  if (r.remaining === 0) return `All ${r.total} pages were inspected visually in this run.`;
+  return `This run inspected ${r.inspected.length} of ${r.total} pages (${r.inspected.join(', ')}; budget ${r.budget} per run, not renewable mid-run). The other pages were not visually read. This result is not a full visual reading of the document. Regenerate or ask in chat to inspect specific remaining pages.`;
+}
+
+export function rejectUnsupportedVision(visual: PdfVisualSession, reason = VISION_UNSUPPORTED): never {
+  visual.markUnsupported(reason);
+  throw new VisionUnsupportedError(reason);
+}

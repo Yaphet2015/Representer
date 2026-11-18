@@ -5,6 +5,7 @@ import type { PdfText } from '@/lib/pdf-text';
 import { pageNeedsVisualInspection } from '@/lib/pdf-text';
 import type { OverviewStatus } from '@/lib/overview-agent';
 import type { ReadPdfResult } from '@/lib/pdf-read';
+import { formatVisualInspectReport, type RenderedPdfPageBytes } from '@/lib/pdf-visual';
 import { pageHash } from '@/lib/cache';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
@@ -59,7 +60,7 @@ function statusLabel(s: OverviewStatus): string {
   if (typeof s === 'object' && 'vision' in s) return s.reason;
   return 'Writing overview…';
 }
-type VisualLink = { port: chrome.runtime.Port; close: () => Promise<void> };
+type VisualLink = { port: chrome.runtime.Port; close: () => Promise<void>; render: (page: number, signal?: AbortSignal) => Promise<RenderedPdfPageBytes> };
 async function openVisualLink(grant: PdfGrant, doc: ReadPdfResult, previous: VisualLink | null): Promise<VisualLink> {
   if (previous) {
     try {
@@ -90,6 +91,7 @@ async function openVisualLink(grant: PdfGrant, doc: ReadPdfResult, previous: Vis
   port.postMessage({ type: 'register', url: grant.url, token: grant.token, catalog: doc.catalog, pageByAnchor: doc.pageByAnchor });
   return {
     port,
+    render: (page, signal) => backend.render(page, signal),
     close: async () => {
       try { port.disconnect(); } catch { /* already gone */ }
       await backend.close().catch(() => {});
@@ -102,7 +104,7 @@ type Load = { kind: 'idle' } | { kind: 'loading'; page: number; total: number } 
 function PdfDocument({ grant }: { grant: PdfGrant }) {
   const [load, setLoad] = useState<Load>({ kind: 'idle' });
   const [summary, setSummary] = useState<Summary | null>(null), [partial, setPartial] = useState<Summary | null>(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [status, setStatus] = useState(''), [inspectNotice, setInspectNotice] = useState('');
   const [tab, setTab] = useState<'overview' | 'chat'>('overview'), [sourcePage, setSourcePage] = useState<number | null>(null);
   const operation = useRef(0), ac = useRef<AbortController | null>(null), stream = useRef<ReturnType<typeof streamSummary> | null>(null), visual = useRef<VisualLink | null>(null);
   const key = pdfCacheUrl(grant.url);
@@ -128,7 +130,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
   };
   const summarize = async (force = false) => {
     if (load.kind !== 'ready' || busy) return;
-    const seq = ++operation.current; setBusy(true); setError(''); setStatus(''); setPartial(null);
+    const seq = ++operation.current; setBusy(true); setError(''); setStatus(''); setInspectNotice(''); setPartial(null);
     try {
       await validate(); if (seq !== operation.current) return;
       try { visual.current = await openVisualLink(grant, load.doc, visual.current); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
@@ -136,11 +138,16 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       const s = streamSummary({ url: key, title: load.doc.title, content: load.doc.content, force }, (p) => { if (seq === operation.current) setPartial(p); }, undefined, undefined, (s) => { if (seq === operation.current) setStatus(statusLabel(s)); });
       stream.current = s; const r = await s.done;
       if (seq !== operation.current) return;
-      if ('done' in r) setSummary(r.summary); else if ('error' in r) setError(r.error);
+      if ('done' in r) { setSummary(r.summary); setInspectNotice(r.visualInspect ? formatVisualInspectReport(r.visualInspect) : ''); } else if ('error' in r) setError(r.error);
     } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (seq === operation.current) { setBusy(false); setPartial(null); } }
   };
   const doc = load.kind === 'ready' ? load.doc : null;
+  const renderSourcePage = useCallback((n: number, signal?: AbortSignal) => {
+    const link = visual.current;
+    if (!link) return Promise.reject(new Error('The page image is not available yet.'));
+    return link.render(n, signal);
+  }, []);
   const source = useMemo(() => ({
     label: 'View PDF source page in sidebar',
     canLocate: (item: { anchor?: string }) => !!(doc && item.anchor && doc.pageByAnchor[item.anchor]),
@@ -161,22 +168,42 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       {load.kind === 'error' && <p role="alert" className="text-[12px] text-red">{load.message}</p>}
       {error && <p role="alert" className="text-[12px] text-red">{error}</p>}
       {busy && <p role="status" className="text-[12px] text-ink-3">{status || 'Summarizing…'}</p>}
+      {!busy && inspectNotice && <p role="status" className="text-[12px] leading-5 text-ink-2">{inspectNotice}</p>}
     </div>
     {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
       {shown ? <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc.title} host={new URL(grant.url).hostname} streaming={busy} /></OverviewSource.Provider> : <p className="px-4 text-[13px] leading-6 text-ink-2">All pages have been read locally. Choose Summarize to send the text and allow on-demand page images to your configured model. Nothing is sent until you choose it.</p>}
     </div>)}
-    {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} />}
+    {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} renderPage={renderSourcePage} />}
   </>;
 }
 
-function PdfSourcePage({ doc, page, setPage, close }: { doc: PdfText; page: number; setPage: (n: number) => void; close: () => void }) {
+function PdfSourcePage({ doc, page, setPage, close, renderPage }: { doc: PdfText; page: number; setPage: (n: number) => void; close: () => void; renderPage?: (page: number, signal?: AbortSignal) => Promise<RenderedPdfPageBytes> }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [picture, setPicture] = useState<{ kind: 'loading' } | { kind: 'ready'; url: string } | { kind: 'error'; message: string } | { kind: 'idle' }>({ kind: 'idle' });
   useEffect(() => { const el = dialog.current; el?.showModal(); return () => el?.close(); }, []);
+  useEffect(() => {
+    if (!renderPage) { setPicture({ kind: 'idle' }); return; }
+    let cancelled = false, url = '';
+    setPicture({ kind: 'loading' });
+    void renderPage(page).then((img) => {
+      const copy = img.bytes.slice();
+      const next = URL.createObjectURL(new Blob([copy], { type: img.mimeType }));
+      if (cancelled) { URL.revokeObjectURL(next); return; }
+      url = next;
+      setPicture({ kind: 'ready', url: next });
+    }, (e) => { if (!cancelled) setPicture({ kind: 'error', message: e instanceof Error ? e.message : String(e) }); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [page, renderPage]);
   return <dialog ref={dialog} onClose={close} onCancel={close} aria-label={`PDF page ${page}`} className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-page p-0 text-ink">
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line p-4"><label className="text-[13px]">Page <select aria-label="PDF source page" value={page} onChange={(e) => setPage(Number(e.target.value))} className="rounded bg-field px-2 py-1 text-ink">{doc.pages.map((_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}</select> / {doc.pages.length}</label><Button size="sm" onClick={close}>Close</Button></header>
-      <p className="px-4 pt-3 text-[12px] text-ink-3">Extracted page text for your reference. The model can inspect a rendered image of this page; this dialog is not a visual reproduction or a highlight in the PDF viewer.</p>
-      <pre tabIndex={0} className="rp-scroll min-h-0 flex-1 whitespace-pre-wrap break-words p-4 font-sans text-[13px] leading-6 text-ink">{doc.pages[page - 1] || '(No selectable text on this page.)'}</pre>
+      <p className="px-4 pt-3 text-[12px] text-ink-3">Rendered page image (when available) and extracted text, for your reference. This is not a highlight in the PDF viewer.</p>
+      <div className="rp-scroll min-h-0 flex-1 overflow-y-auto">
+        {picture.kind === 'loading' && <p className="px-4 pt-3 text-[12px] text-ink-3">Rendering page image…</p>}
+        {picture.kind === 'error' && <p className="px-4 pt-3 text-[12px] text-ink-3">Page image could not be rendered. {picture.message}</p>}
+        {picture.kind === 'ready' && <img src={picture.url} alt={`Rendered PDF page ${page}`} className="mx-auto max-w-full bg-white p-4" />}
+        <pre tabIndex={0} className="whitespace-pre-wrap break-words p-4 font-sans text-[13px] leading-6 text-ink">{doc.pages[page - 1] || '(No selectable text on this page.)'}</pre>
+      </div>
     </div>
   </dialog>;
 }

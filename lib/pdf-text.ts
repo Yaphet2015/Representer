@@ -36,12 +36,12 @@ export function formatPdfPageCatalog(catalog: readonly PdfPageInfo[], inspectBud
   const lines = catalog.map((p) => {
     const flags = [
       p.hasText ? `${p.chars} chars of selectable text` : 'no selectable text',
-      p.hasImages ? 'contains images or painted figures' : 'no image paint operators detected',
-      pageNeedsVisualInspection(p) ? 'inspect the rendered page' : 'inspect if a figure may matter',
+      p.hasImages ? 'contains images or painted figures; inspect first' : 'no image paint operators detected; vector charts, diagrams or layout may still exist only in the page image — do not skip inspect_pdf_page because of this flag',
+      pageNeedsVisualInspection(p) ? 'inspect first' : 'still inspect if a chart, diagram, table or layout could matter',
     ];
     return `${p.page}: ${flags.join('; ')}`;
   });
-  return `Every page of this PDF is available. The text layer can omit charts, figures, photos and scanned wording. Pages listed as needing inspection, and any page a question or figure depends on, should be opened with inspect_pdf_page({page: N}) (one page per call; at most ${inspectBudget} pages in this run). Do not request every page. Cite answers with the existing block id for that page (the [pN] marker whose line says "PDF page N"). If inspect_pdf_page reports that this model cannot accept images, say so clearly and do not invent chart or scanned values.
+  return `Every page of this PDF is available. The text layer can omit charts, figures, photos, vector drawings and scanned wording. hasImages false only means no image paint operators were detected; it is not a reason to skip visualization. Prefer pages marked "inspect first", then any page a question, chart, diagram or layout depends on. Open a page with inspect_pdf_page({page: N}) (one page per call). This run can inspect at most ${inspectBudget} distinct pages; that cap is not renewable mid-run. If the budget is reached, say which pages were and were not inspected, and do not claim uninspected pages were visually read or that the whole document was visually covered. A later summarize or chat run can inspect other pages. Cite answers with the existing block id for that page (the [pN] marker whose line says "PDF page N"). If inspect_pdf_page reports that this model cannot accept images, say so clearly and do not invent chart or scanned values.
 <pdf_pages>
 ${lines.join('\n')}
 </pdf_pages>`;

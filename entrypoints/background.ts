@@ -1,5 +1,6 @@
 import { installPdfEntry } from '@/lib/pdf-entry';
 import { visualSession } from '@/lib/pdf-visual-sessions';
+import { visualInspectReport } from '@/lib/pdf-visual';
 import { createCache, pageHash } from '@/lib/cache';
 import { createFrameRelay } from '@/lib/frame-relay';
 import { CHAT_PORT, SUMMARY_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
@@ -79,6 +80,7 @@ export default defineBackground(() => {
         const { s, lang } = await ctx();
         return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, { ...more, visual: visualSession(url) });
       },
+      visualInspect: (url) => { const v = visualSession(url); return v ? visualInspectReport(v) : undefined; },
     });
   });
 
