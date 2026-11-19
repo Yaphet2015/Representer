@@ -17,6 +17,7 @@ export interface Api {
   testConnection: { req: { settings: Settings }; res: { result: TestResult } };
   getSessions: { req: { url: string }; res: { state: SessionsState } };
   forkSession: { req: { url: string; from: string }; res: { state: SessionsState; id: string } };
+  newSession: { req: { url: string }; res: { state: SessionsState; id: string } };
   closeSession: { req: { url: string; id: string }; res: { state: SessionsState } };
   setActiveSession: { req: { url: string; id: string }; res: { state: SessionsState } };
 }

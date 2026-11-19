@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLang, useT } from './i18n';
 import { CHAT_PORT, rpc, type ChatEvent, type ChatRequest } from '@/lib/messages';
 import { chromeKV, KEYS, onStorageChange } from '@/lib/storage';
-import { getSession, MAIN_ID, parseSide, sessionLabel, type SessionsState } from '@/lib/sessions';
+import { getSession, MAIN_ID, parseNew, parseSide, sessionLabel, type SessionsState } from '@/lib/sessions';
 import { createSkillStore, localizeSkill, renderTemplate, type Skill } from '@/lib/skills';
 import type { ChatMessage } from '@/lib/types';
 import { SessionChips } from './SessionChips';
@@ -16,7 +16,7 @@ import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => Promise<{ title: string; content: string }>; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
-  const [input, setInput] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const end = useRef<HTMLDivElement>(null);
@@ -24,6 +24,9 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
   const lastSelection = useRef('');
   const lang = useLang();
   const skillStore = useRef(createSkillStore(chromeKV)).current;
+  const sid = state?.active ?? MAIN_ID;
+  const input = drafts[sid] ?? '';
+  const setInput = (text: string) => setDrafts((d) => (d[sid] === text ? d : { ...d, [sid]: text }));
 
   useEffect(() => { // a clicked term in the overview: prefill the input and focus it, the user decides whether to send
     if (!draft) return;
@@ -32,7 +35,6 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
   }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { onBusy?.(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  const sid = state?.active ?? MAIN_ID;
   const messages: ChatMessage[] = (state && getSession(state, sid)?.messages) || [];
 
   useEffect(() => { rpc('getSessions', { url }).then((r) => r.ok && setState(r.state)); }, [url, reloadKey]);
@@ -78,9 +80,22 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
     if (!r.ok) return;
     setState(r.state);
     if (firstMessage) stream(firstMessage, r.id);
+    else requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const openNew = async (draftText = '') => {
+    const r = await rpc('newSession', { url });
+    if (!r.ok) return;
+    setState(r.state);
+    setDrafts((d) => ({ ...d, [r.id]: draftText }));
+    requestAnimationFrame(() => { const el = inputRef.current; if (!el) return; el.focus(); const n = draftText.length; el.setSelectionRange(n, n); });
   };
   const switchTo = async (id: string) => { const r = await rpc('setActiveSession', { url, id }); if (r.ok) setState(r.state); };
-  const closeIt = async (id: string) => { const r = await rpc('closeSession', { url, id }); if (r.ok) setState(r.state); };
+  const closeIt = async (id: string) => {
+    const r = await rpc('closeSession', { url, id });
+    if (!r.ok) return;
+    setState(r.state);
+    setDrafts((d) => { const next = { ...d }; delete next[id]; return next; });
+  };
 
   const runSkill = async (s: Skill, rawInput = input) => {
     if (busy || disabled) return;
@@ -93,9 +108,11 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
   const submit = () => {
     const text = input.trim();
     if (!text || busy || disabled) return;
+    const created = parseNew(text);
+    if (created) { setInput(''); void openNew(created.draft); return; }
     const side = parseSide(text);
     setInput('');
-    if (side) { fork(side.message); return; }
+    if (side) { void fork(side.message); return; }
     stream(text, sid);
   };
 
@@ -103,26 +120,26 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
   const showSlash = items.length > 0 && !busy;
   const pickSlash = (it: SlashItem) => {
     if (it.skill) { runSkill(it.skill, ''); return; }
+    if (it.key === 'new') { setInput(''); void openNew(); return; }
     setInput('/side '); inputRef.current?.focus();
   };
   // from the + menu: what is already typed becomes the Skill's input / the side chat's first message
   const pickQuick = (it: SlashItem) => {
     if (it.skill) { runSkill(it.skill, input); return; }
+    if (it.key === 'new') { void openNew(); return; }
     setInput('/side ' + input.trimStart()); inputRef.current?.focus();
   };
 
   const canSend = !!input.trim() && !busy && !disabled;
 
-  const sideCount = (state?.sessions.length ?? 1) - 1;
-
   return (
     <div className="relative flex h-full flex-col">
-      {state && state.sessions.length > 1 && <div className="mt-10 shrink-0"><SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onFork={() => fork()} disabled={busy || disabled} /></div>}
+      {state && <div className="mt-10 shrink-0"><SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onNew={() => { void openNew(); }} disabled={busy || disabled} /></div>}
       {/* without side chats the messages start under the floating capsule and scroll beneath it; the bottom padding lets the last message scroll clear of the floating composer */}
-      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${sideCount > 0 ? 'pt-3' : 'pt-14'} pb-[150px]`}>
+      <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${state ? 'pt-3' : 'pt-14'} pb-[150px]`}>
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
-            {sid === MAIN_ID ? t.emptyMain : t.emptySide}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}<span data-quick-hint>{t.quickHintPre}<span className="text-ink-2">+</span>{t.quickHintMid}<span className="text-ink-2">/</span>{t.quickHintPost}</span>
+            {sid === MAIN_ID ? t.emptyMain : state && getSession(state, sid)?.parent ? t.emptySide : t.emptyChat}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}<span data-quick-hint>{t.quickHintPre}<span className="text-ink-2">+</span>{t.quickHintMid}<span className="text-ink-2">/</span>{t.quickHintPost}</span>
           </p>
         )}
         {messages.map((m, i) => {

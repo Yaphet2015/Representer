@@ -15,18 +15,19 @@ const wrap = (el: React.ReactElement) => renderToStaticMarkup(<LangProvider>{el}
 describe('quick actions: one list for the / menu and the + menu', () => {
   const builtin = (id: string, name: string): Skill => ({ ...[...DEFAULT_SKILLS, ...DEFAULT_SKILLS_EN].find((d) => d.id === id)!, name });
   it('the / menu opens exactly while the input starts with "/" and something matches', () => {
-    for (const [input, open] of [['/', true], ['/技能1', true], ['/side hi', true], ['/zzz-none', false], ['hello', false], ['', false]] as const)
+    for (const [input, open] of [['/', true], ['/技能1', true], ['/side hi', true], ['/new', true], ['/new draft', true], ['/zzz-none', false], ['hello', false], ['', false]] as const)
       expect(slashItems(input, skills, t).length > 0, input).toBe(open);
   });
-  it('lists every Skill, then /side, with a line icon, a name and a short grey description', () => {
+  it('lists every Skill, then /new, then /side, with a line icon, a name and a short grey description', () => {
     const items = quickItems([builtin('translate-en', '翻译成英文'), builtin('key-points', '提炼要点'), skill(1)], t);
-    expect(items.map((i) => i.key)).toEqual(['translate-en', 'key-points', 's1', 'side']);
-    expect(items.map((i) => i.desc)).toEqual(['保留术语', '一句一条', 'summarize fo…', t.sideDesc]);
-    expect(items[3]!.name).toBe(t.sideName);
+    expect(items.map((i) => i.key)).toEqual(['translate-en', 'key-points', 's1', 'new', 'side']);
+    expect(items.map((i) => i.desc)).toEqual(['保留术语', '一句一条', 'summarize fo…', t.newDesc, t.sideDesc]);
+    expect(items[3]!.name).toBe(t.newName);
+    expect(items[4]!.name).toBe(t.sideName);
     const html = wrap(<SlashMenu items={items} active={1} onPick={() => {}} onHover={() => {}} />);
     expect(html).not.toContain('🌐'); // line icons, not emoji
-    expect(html.match(/<svg/g)).toHaveLength(4);
-    expect(html.match(/class="flex h-8 /g)).toHaveLength(4); // 32px rows
+    expect(html.match(/<svg/g)).toHaveLength(5);
+    expect(html.match(/class="flex h-8 /g)).toHaveLength(5); // 32px rows
     expect(html).toContain('rp-menu');
     expect(readFileSync('assets/tailwind.css', 'utf8')).toContain('.rp-menu { background: rgba(var(--glass-rgb),.92); -webkit-backdrop-filter: blur(20px)');
   });
@@ -69,7 +70,7 @@ describe('menu height follows the room above the composer', () => {
 });
 
 describe('keyboard still drives the menu', () => {
-  const items = slashItems('/', skills.slice(0, 3), t); // 3 skills + /side
+  const items = slashItems('/', skills.slice(0, 3), t); // 3 skills + /new + /side
   const key = (k: string, shiftKey = false) => ({ key: k, shiftKey });
   it('moves with the arrows, wrapping both ways', () => {
     expect(slashKeyAction(key('ArrowDown'), items, 0, '/')).toEqual({ type: 'move', active: 1 });
@@ -81,10 +82,14 @@ describe('keyboard still drives the menu', () => {
     expect(slashKeyAction(key('Enter'), items, 1, '/')).toEqual({ type: 'pick', item: items[1] });
     expect(slashKeyAction(key('Enter', true), items, 1, '/')).toBeNull();
   });
-  it('lets Enter send "/side text" instead of re-picking /side', () => {
+  it('lets Enter send "/side text" or "/new text" instead of re-picking the command', () => {
     const side = slashItems('/side hi', skills, t);
     expect(slashKeyAction(key('Enter'), side, 0, '/side hi')).toBeNull();
     expect(slashKeyAction(key('Tab'), side, 0, '/side hi')).toEqual({ type: 'pick', item: side[0] });
+    const neu = slashItems('/new note', skills, t);
+    expect(neu.map((i) => i.key)).toEqual(['new']);
+    expect(slashKeyAction(key('Enter'), neu, 0, '/new note')).toBeNull();
+    expect(slashKeyAction(key('Tab'), neu, 0, '/new note')).toEqual({ type: 'pick', item: neu[0] });
   });
   it('Escape closes (clears the input); other keys and an empty menu do nothing', () => {
     expect(slashKeyAction(key('Escape'), items, 0, '/')).toEqual({ type: 'close' });
