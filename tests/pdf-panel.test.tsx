@@ -16,7 +16,7 @@ vi.mock('@/lib/pdf-render', () => ({
 }));
 let root: Root, host: HTMLElement;
 let rpc: ReturnType<typeof vi.fn>, connect: ReturnType<typeof vi.fn>, setStorage: ReturnType<typeof vi.fn>;
-let changed: ((id: number, info: { status: string }) => void) | undefined;
+let changed: ((id: number, info: { status?: string; url?: string }) => void) | undefined;
 let activated: ((info: { tabId: number }) => void) | undefined;
 let active = true;
 const grant = { tabId: 8, url: 'https://files.example.org/doc', token: 'clicked' };
@@ -47,6 +47,7 @@ beforeEach(() => {
   if (typeof URL.createObjectURL !== 'function') {
     Object.assign(URL, { createObjectURL: () => 'blob:test-pdf-page', revokeObjectURL: () => {} });
   }
+  window.history.replaceState({}, '', '/pdf-panel.html?tab=8');
   root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); vi.unstubAllGlobals(); });
@@ -74,8 +75,15 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
   });
   it('invalidates extracted text on a navigation and does not automatically re-download', async () => {
     await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
-    active = false; await act(async () => changed?.(8, { status: 'loading' })); await settle();
+    active = false; await act(async () => changed?.(8, { url: 'https://other.example.org/other' })); await settle();
     expect(host.textContent).not.toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1); expect(connect.mock.calls.every((c) => c[0]?.name === 'pdf-visual')).toBe(true);
+  });
+  it('does not drop a completed read on a same-document loading or hash-only update', async () => {
+    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await act(async () => changed?.(8, { status: 'loading' })); await settle();
+    await act(async () => changed?.(8, { url: 'https://files.example.org/doc#page=2' })); await settle();
+    expect(host.textContent).toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: PDF_CONTEXT, tabId: 8 }));
   });
   it('does not discard the reader or restart extraction when another tab loads', async () => {
     await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');

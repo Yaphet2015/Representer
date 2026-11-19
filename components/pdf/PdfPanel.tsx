@@ -15,8 +15,16 @@ import { Button } from '../bui/Button';
 import { useTheme } from '../theme';
 import { PdfChat } from './PdfChat';
 
+function panelTabId(): number | undefined {
+  const raw = new URLSearchParams(location.search).get('tab');
+  if (raw == null || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
 async function context(): Promise<PdfContext> {
-  const r: unknown = await chrome.runtime.sendMessage({ type: PDF_CONTEXT });
+  const tabId = panelTabId();
+  const r: unknown = await chrome.runtime.sendMessage({ type: PDF_CONTEXT, ...(tabId !== undefined ? { tabId } : {}) });
   return isPdfContext(r) ? r : { kind: 'none' };
 }
 
@@ -38,14 +46,14 @@ export function PdfPanel() {
         apply(r);
       });
     };
-    const update = (id: number, info: chrome.tabs.OnUpdatedInfo) => { const g = selected.current; if (g?.tabId === id && (info.status === 'loading' || (info.url && publicPdfUrl(info.url) !== g.url))) refresh(); };
+    const update = (id: number, info: chrome.tabs.OnUpdatedInfo) => { const g = selected.current; if (g?.tabId === id && info.url && publicPdfUrl(info.url) !== g.url) refresh(); };
     const message = (msg: unknown) => { if (msg && typeof msg === 'object' && 'type' in msg && msg.type === 'rp-pdf-selected') refresh(); };
     chrome.tabs.onActivated.addListener(activate); chrome.tabs.onUpdated.addListener(update); chrome.runtime.onMessage.addListener(message);
     return () => { requests.current++; chrome.tabs.onActivated.removeListener(activate); chrome.tabs.onUpdated.removeListener(update); chrome.runtime.onMessage.removeListener(message); };
   }, []);
   return <main data-theme={theme} className="relative flex h-screen min-w-0 flex-col bg-page font-sans text-ink antialiased">
     <header className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3"><h1 className="text-[15px] font-[650]">Representer <span className="text-ink-3">/ PDF</span></h1><Button variant="quiet" size="sm" onClick={() => { void chrome.runtime.openOptionsPage(); }}>Settings</Button></header>
-    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button to select it. Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. All pages are read locally, including image-only pages. Your model can inspect rendered page images on demand for charts and figures when it supports vision. Password-protected files are not supported.</p></div>}
+    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button, or press the same shortcut used on webpages (⌘E / Ctrl+E). Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. All pages are read locally, including image-only pages. Your model can inspect rendered page images on demand for charts and figures when it supports vision. Password-protected files are not supported.</p></div>}
   </main>;
 }
 

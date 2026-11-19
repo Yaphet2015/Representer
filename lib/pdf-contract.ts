@@ -33,3 +33,16 @@ export function isPdfAuthorization(v: unknown): v is PdfAuthorization {
 export const pdfCacheUrl = (url: string) => `pdf:v1:${url}`;
 export const PDF_VISUAL_CLOSE = 'rp-pdf-visual-close';
 export interface PdfVisualCloseRequest { type: typeof PDF_VISUAL_CLOSE; url: string; token: string }
+
+/** True when `url` is this extension's PDF side panel, including a tab query string. */
+export function isPdfPanelUrl(url: string | undefined, panelUrl: string): boolean {
+  if (!url) return false;
+  try {
+    const actual = new URL(url);
+    const panel = new URL(panelUrl);
+    return actual.protocol === panel.protocol && actual.host === panel.host && actual.pathname === panel.pathname;
+  } catch {
+    return false;
+  }
+}
+

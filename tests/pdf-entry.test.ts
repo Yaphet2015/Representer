@@ -1,41 +1,66 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { installPdfEntry } from '../lib/pdf-entry';
-import { PDF_CONTEXT, PDF_DOCUMENT } from '../lib/pdf-contract';
+import { installPdfEntry, TOGGLE_COMMAND } from '../lib/pdf-entry';
+import { isPdfPanelUrl, PDF_CONTEXT, PDF_DOCUMENT, PDF_VISUAL_CLOSE } from '../lib/pdf-contract';
+import { PDF_VISUAL_PORT } from '../lib/pdf-visual-port';
 
 type Listener = (...args: any[]) => any;
 function event() { const listeners: Listener[] = []; return { clear() { listeners.length = 0; }, addListener(f: Listener) { listeners.push(f); }, fire(...args: any[]) { return listeners.map((f) => f(...args)); } }; }
-let action: ReturnType<typeof event>, messages: ReturnType<typeof event>, updated: ReturnType<typeof event>, removed: ReturnType<typeof event>;
-let open: ReturnType<typeof vi.fn>, send: ReturnType<typeof vi.fn>, setOptions: ReturnType<typeof vi.fn>, setPanelBehavior: ReturnType<typeof vi.fn>, close: ReturnType<typeof vi.fn>;
+let action: ReturnType<typeof event>, command: ReturnType<typeof event>, messages: ReturnType<typeof event>, updated: ReturnType<typeof event>, removed: ReturnType<typeof event>, connect: ReturnType<typeof event>;
+let open: ReturnType<typeof vi.fn>, send: ReturnType<typeof vi.fn>, setOptions: ReturnType<typeof vi.fn>, setPanelBehavior: ReturnType<typeof vi.fn>, close: ReturnType<typeof vi.fn>, disconnect: ReturnType<typeof vi.fn>;
 let toggle: (id?: number) => Promise<void>;
 let session: Record<string, unknown>;
+let tabs: Record<number, { id: number; url: string }>;
 let tab: { id: number; url: string };
 beforeEach(() => {
   session = {};
-  action = event(); messages = event(); updated = event(); removed = event(); tab = { id: 8, url: 'https://files.example.org/no-extension' };
+  action = event(); command = event(); messages = event(); updated = event(); removed = event(); connect = event();
+  tab = { id: 8, url: 'https://files.example.org/no-extension' };
+  tabs = { 8: tab };
   open = vi.fn(async () => {}); setOptions = vi.fn(async () => {}); setPanelBehavior = vi.fn(async () => {}); close = vi.fn(async () => {});
+  disconnect = vi.fn();
   toggle = vi.fn(async () => {}); send = vi.fn(async () => { throw new Error('No receiver'); });
   vi.stubGlobal('chrome', {
-    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: event(), sendMessage: vi.fn(async () => {}) },
-    storage: { session: { get: async (k: string) => ({ [k]: session[k] }), set: async (v: Record<string, unknown>) => { Object.assign(session, v); }, remove: async (k: string) => { delete session[k]; } } },
-    action: { onClicked: action }, sidePanel: { open, close, setOptions, setPanelBehavior },
-    tabs: { onUpdated: updated, onRemoved: removed, query: async () => [tab], sendMessage: send },
+    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: connect, sendMessage: vi.fn(async () => {}) },
+    storage: { session: {
+      get: async (k: string | null) => (k == null ? { ...session } : { [k]: session[k] }),
+      set: async (v: Record<string, unknown>) => { Object.assign(session, v); },
+      remove: async (k: string) => { delete session[k]; },
+    } },
+    action: { onClicked: action }, commands: { onCommand: command },
+    sidePanel: { open, close, setOptions, setPanelBehavior },
+    tabs: {
+      onUpdated: updated, onRemoved: removed,
+      query: async () => { throw new Error('PDF context must not guess the active tab'); },
+      get: async (id: number) => { const t = tabs[id]; if (!t) throw new Error('no tab'); return t; },
+      sendMessage: send,
+    },
   });
   installPdfEntry(async (id) => { await toggle(id); });
 });
 afterEach(() => vi.unstubAllGlobals());
-const panel = { id: 'ext', url: 'chrome-extension://ext/pdf-panel.html' };
-const ctx = (sender = panel) => new Promise<any>((resolve) => {
-  const handled = messages.fire({ type: PDF_CONTEXT }, sender, resolve).some(Boolean); if (!handled) resolve(null);
+const panel = { id: 'ext', url: 'chrome-extension://ext/pdf-panel.html?tab=8' };
+const ctx = (sender = panel, tabId = 8) => new Promise<any>((resolve) => {
+  const handled = messages.fire({ type: PDF_CONTEXT, tabId }, sender, resolve).some(Boolean); if (!handled) resolve(null);
 });
+const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
 describe('toolbar routing and PDF user-action capability', () => {
   it('opens a side panel in the original action call stack, without a URL fetch, for a native PDF with no suffix', async () => {
     action.fire(tab); expect(open).toHaveBeenCalledWith({ tabId: 8 }); expect(send).not.toHaveBeenCalled();
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, path: 'pdf-panel.html?tab=8', enabled: true });
     const c = await ctx(); expect(c.kind).toBe('pdf'); expect(c.grant.url).toBe(tab.url); expect(c.grant.token).toBeTruthy();
   });
   it('leaves a known normal webpage on the original floating-panel path', () => {
     messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
     action.fire(tab); expect(open).not.toHaveBeenCalled(); expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('keeps an HTML application/pdf viewer on the PDF sidebar path after a ping', async () => {
+    send.mockResolvedValue({ kind: 'pdf' });
+    messages.fire({ type: PDF_DOCUMENT, kind: 'pdf' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    action.fire(tab);
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect((await ctx()).kind).toBe('pdf');
+    expect(toggle).not.toHaveBeenCalled();
   });
   it('after a worker restart, identifies an ordinary page without fetching it and hands back to the overlay', async () => {
     send.mockResolvedValue({ kind: 'html' }); action.fire(tab);
@@ -45,28 +70,76 @@ describe('toolbar routing and PDF user-action capability', () => {
   it('will not grant access to a page that was not clicked, or to content-script senders', async () => {
     expect((await ctx()).kind).toBe('none'); action.fire(tab);
     expect(await ctx({ id: 'ext', url: tab.url })).toBeNull();
-    tab = { id: 9, url: tab.url }; expect((await ctx()).kind).toBe('none');
+    expect((await ctx(panel, 9)).kind).toBe('none');
   });
-  it('invalidates on reload/navigation/tab removal, including changes during a pending ping', async () => {
-    action.fire(tab); updated.fire(8, { status: 'loading' }); expect((await ctx()).kind).toBe('none');
+  it('ignores same-document loading and hash updates, and only forgets on navigation, tab removal, or a mid-ping URL change', async () => {
+    action.fire(tab);
+    updated.fire(8, { status: 'loading' });
+    expect((await ctx()).kind).toBe('pdf');
+    updated.fire(8, { url: `${tab.url}#page=2` });
+    expect((await ctx()).kind).toBe('pdf');
+    updated.fire(8, { status: 'loading', url: `${tab.url}#page=3` });
+    expect((await ctx()).kind).toBe('pdf');
     action.fire(tab); removed.fire(8); expect((await ctx()).kind).toBe('none');
     action.fire(tab);
-    send.mockImplementation(async () => { updated.fire(8, { url: 'https://other.example.org/' }); return { kind: 'pdf' }; });
+    send.mockImplementation(async () => { updated.fire(8, { url: 'https://other.example.org/' }); tabs[8] = { id: 8, url: 'https://other.example.org/' }; return { kind: 'pdf' }; });
     expect((await ctx()).kind).toBe('none');
   });
-  it('keeps an explicit selection across service-worker suspension without retaining PDF data', async () => {
+  it('does not drop a grant when the PDF viewer reports its own chrome-extension URL but the tab is still the document', async () => {
+    action.fire(tab);
+    updated.fire(8, { url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html' });
+    await flush();
+    expect((await ctx()).kind).toBe('pdf');
+  });
+  it('forgets the grant when a non-public URL update is a real navigation away from the document', async () => {
+    action.fire(tab);
+    tabs[8] = { id: 8, url: 'chrome://settings' };
+    updated.fire(8, { url: 'chrome://settings' });
+    await flush();
+    expect((await ctx()).kind).toBe('none');
+  });
+  it('keeps an explicit selection across service-worker suspension without retaining PDF data, including visual-session lookup', async () => {
     action.fire(tab); const first = await ctx();
-    action.clear(); messages.clear(); updated.clear(); removed.clear(); // a new worker, same session storage
+    action.clear(); messages.clear(); updated.clear(); removed.clear(); command.clear(); connect.clear();
     installPdfEntry(async (id) => { await toggle(id); });
+    await flush();
     const restored = await ctx(); expect(restored.grant.token).toBe(first.grant.token);
     expect(Object.keys(session)).toEqual(['pdf-authorization:8']); expect(session['pdf-authorization:8']).not.toHaveProperty('content');
-    updated.fire(8, { status: 'loading' }); expect((await ctx()).kind).toBe('none');
+    const port = { sender: panel, disconnect: disconnect, postMessage: vi.fn(), onMessage: event(), onDisconnect: event() };
+    connect.fire(port);
+    port.onMessage.fire({ type: 'register', url: first.grant.url, token: first.grant.token, catalog: [{ page: 1, chars: 1, hasImages: false }], pageByAnchor: { p1: 1 } });
+    expect(port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    const closeReply = await new Promise<any>((resolve) => { messages.fire({ type: PDF_VISUAL_CLOSE, url: first.grant.url, token: first.grant.token }, panel, resolve); });
+    expect(closeReply).toEqual({ ok: true });
+    updated.fire(8, { url: 'https://other.example.org/doc' });
+    tabs[8] = { id: 8, url: 'https://other.example.org/doc' };
+    await flush();
+    expect((await ctx()).kind).toBe('none');
   });
-  it('rejects restricted schemes, private URLs and stale grants', async () => {
+  it('rejects restricted schemes, private URLs and stale grants, and lets a new click renew a grant', async () => {
     action.fire({ id: 8, url: 'chrome://settings' }); expect(open).not.toHaveBeenCalled();
     action.fire({ id: 8, url: 'http://127.0.0.1/doc' }); expect(open).not.toHaveBeenCalled();
-    action.fire(tab); const now = Date.now(); const spy = vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 60_000);
+    action.fire({ id: 8, url: 'file:///tmp/doc.pdf' }); expect(open).not.toHaveBeenCalled();
+    action.fire(tab); const first = await ctx();
+    const now = Date.now(); const spy = vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 60_000);
     expect((await ctx()).kind).toBe('none'); spy.mockRestore();
+    action.fire(tab); const renewed = await ctx();
+    expect(renewed.kind).toBe('pdf'); expect(renewed.grant.token).toBeTruthy(); expect(renewed.grant.token).not.toBe(first.grant.token);
+  });
+  it('binds context to the panel tab, not whichever tab lastFocusedWindow would return', async () => {
+    action.fire(tab);
+    tabs[9] = { id: 9, url: 'https://other.example.org/page' };
+    expect((await ctx(panel, 8)).kind).toBe('pdf');
+    expect((await ctx(panel, 9)).kind).toBe('none');
+  });
+  it('accepts the panel URL with a tab query string and rejects a context request with no tab id', async () => {
+    expect(isPdfPanelUrl('chrome-extension://ext/pdf-panel.html?tab=8', 'chrome-extension://ext/pdf-panel.html')).toBe(true);
+    action.fire(tab);
+    const handled = await new Promise<any>((resolve) => {
+      const ok = messages.fire({ type: PDF_CONTEXT }, panel, resolve).some(Boolean);
+      if (!ok) resolve(null);
+    });
+    expect(handled.kind).toBe('none');
   });
   it('disables the global side panel at startup so it cannot follow ordinary tabs', () => {
     expect(setOptions).toHaveBeenCalledWith({ enabled: false });
@@ -77,7 +150,7 @@ describe('toolbar routing and PDF user-action capability', () => {
     let finish: (v?: void) => void = () => {};
     setOptions.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
     action.fire(tab);
-    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, path: 'pdf-panel.html', enabled: true });
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, path: 'pdf-panel.html?tab=8', enabled: true });
     expect(open).toHaveBeenCalledWith({ tabId: 8 });
     const enable = setOptions.mock.calls.findIndex((c) => c[0] && typeof c[0] === 'object' && 'tabId' in c[0] && c[0].enabled === true);
     expect(enable).toBeGreaterThanOrEqual(0);
@@ -86,14 +159,41 @@ describe('toolbar routing and PDF user-action capability', () => {
   });
   it("disables that tab's panel on navigation and does not enable a global panel for a known webpage", () => {
     action.fire(tab);
-    updated.fire(8, { status: 'loading' });
+    tabs[8] = { id: 8, url: 'https://other.example.org/' };
+    updated.fire(8, { url: 'https://other.example.org/' });
     expect(setOptions).toHaveBeenCalledWith({ tabId: 8, enabled: false });
     expect(close).toHaveBeenCalledWith({ tabId: 8 });
     setOptions.mockClear(); open.mockClear();
     messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
-    action.fire(tab);
+    action.fire({ id: 8, url: tab.url });
     expect(open).not.toHaveBeenCalled();
     expect(toggle).toHaveBeenCalledWith(8);
     expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+});
+
+describe('shared keyboard shortcut routing', () => {
+  it('uses the existing toggle-overlay command to open the PDF sidebar on the same path as the toolbar', async () => {
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(toggle).not.toHaveBeenCalled();
+    expect((await ctx()).kind).toBe('pdf');
+  });
+  it('keeps the command on the overlay path for a known webpage and does not open a sidebar', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('does not query or open when the command has no tab, so a user-gesture gap is not introduced', () => {
+    command.fire(TOGGLE_COMMAND);
+    expect(open).not.toHaveBeenCalled();
+  });
+  it('opens the sidebar in the same turn as the command, before any async work', () => {
+    let finish: (v?: void) => void = () => {};
+    setOptions.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    finish();
   });
 });
