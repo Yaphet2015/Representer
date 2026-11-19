@@ -30,14 +30,14 @@ const zh = {
 
   frameNestedUnread: (n: number) => `嵌入页内还有 ${n} 个嵌套框架未读取。`,
   // chat
-  emptyMain: '关于这个页面，随便问点什么。', emptySide: '这是一个空的支线会话。',
-  slashHintPre: '输入 ', slashHintPost: ' 查看命令', sideHintPre: '输入 ', sideHintPost: ' 可以另开一个支线，不打断主线。', newSideTitle: '新支线（/side）',
+  emptyMain: '关于这个页面，随便问点什么。', emptySide: '这是一个空的支线会话。', emptyChat: '这是一个新的对话。',
+  slashHintPre: '输入 ', slashHintPost: ' 查看命令', sideHintPre: '输入 ', sideHintPost: ' 可以另开一个支线，不打断主线。', newSideTitle: '新支线（/side）', newConversationTitle: '新建对话',
   current: (name: string) => `当前：${name}`,
   placeholderWait: '请先等待总结完成…', placeholder: '继续提问…（/ 查看命令）',
   inputLabel: '对话输入框', send: '发送',
-  slashHeader: '命令 · ↑↓ 选择 · Tab/回车 确认', slashSide: '开一个支线对话，不打断主线；后面接一句话会作为第一条消息',
+  slashHeader: '命令 · ↑↓ 选择 · Tab/回车 确认', slashSide: '开一个支线对话，不打断主线；后面接一句话会作为第一条消息', slashNew: '新建一个空白对话页签，不复制当前记录',
   runSkill: (name: string) => `运行 Skill：${name}（用输入框里的文字作为输入）`,
-  mainSession: '主线', sideSession: (n: number) => `支线 ${n}`,
+  mainSession: '主线', sideSession: (n: number) => `支线 ${n}`, chatSession: (n: number) => `对话 ${n}`,
   mainSessionTitle: '主线会话', forkedFrom: (name: string) => `从「${name}」分叉`,
   closeSession: (name: string) => `关闭${name}`, forkTitle: '分叉出一个支线会话（也可以输入 /side）', newSide: '新支线',
   // options
@@ -71,6 +71,7 @@ const zh = {
   errName: '请填写名称', errNameLong: '名称最多 24 个字', errTemplate: '请填写提示词模板', errNoSkill: 'Skill 不存在',
   quickActions: '快捷操作', quickHintPre: '点 ', quickHintMid: ' 或输入 ', quickHintPost: ' 使用快捷操作。',
   sideName: '开个支线', sideDesc: '不打断主线',
+  newName: '新对话', newDesc: '打开一个空白页签',
   quickDesc: { 'translate-en': '保留术语', 'key-points': '一句一条', explain: '讲清难词', qa: '检验理解' } as Record<string, string>,
   // options v2
   errKind: { auth: 'API Key 无效或没有权限，请检查后重试。', url: '找不到这个接口地址，请检查 Base URL。', model: '服务里没有这个模型，换一个模型名再试。', network: '连不上服务，请检查网络或 Base URL。', timeout: '请求超时，请稍后重试。', generic: '测试没有通过，请检查连接设置后重试。' } as Record<'auth' | 'url' | 'model' | 'network' | 'timeout' | 'generic', string>, errDetails: '详情',
@@ -104,6 +105,7 @@ export type Messages = typeof zh;
 const en: Messages = {
   quickActions: 'Quick actions', quickHintPre: 'Tap ', quickHintMid: ' or type ', quickHintPost: ' for quick actions.',
   sideName: 'Side chat', sideDesc: 'Keeps this one going',
+  newName: 'New conversation', newDesc: 'Opens a blank tab',
   quickDesc: { 'translate-en': 'Keeps terms', 'key-points': 'One per line', explain: 'Plain words', qa: 'Check yourself' },
   tabOverview: 'Overview', tabChat: 'Chat', tabsLabel: 'Panel view', overview: 'Overview',
   cached: 'Cached', generatedAt: (time) => `Generated at ${time}`, copyOverview: 'Copy overview', copyMessage: 'Copy message', copied: 'Copied', copyFailed: 'Copy failed',
@@ -123,14 +125,14 @@ const en: Messages = {
   frameTimeout: (href: string) => `Timed out waiting for embedded frame: ${href}`,
 
   frameNestedUnread: (n) => `${n} nested frame(s) inside the embed were not read.`,
-  emptyMain: 'Ask anything about this page.', emptySide: 'This side chat is empty.',
-  slashHintPre: 'Type ', slashHintPost: ' for commands', sideHintPre: 'Type ', sideHintPost: ' to branch a side chat without interrupting this one.', newSideTitle: 'New side (/side)',
+  emptyMain: 'Ask anything about this page.', emptySide: 'This side chat is empty.', emptyChat: 'This conversation is empty.',
+  slashHintPre: 'Type ', slashHintPost: ' for commands', sideHintPre: 'Type ', sideHintPost: ' to branch a side chat without interrupting this one.', newSideTitle: 'New side (/side)', newConversationTitle: 'New conversation',
   current: (name) => `Current: ${name}`,
   placeholderWait: 'Waiting for the summary…', placeholder: 'Ask a follow-up… (/ for commands)',
   inputLabel: 'Chat input', send: 'Send',
-  slashHeader: 'Commands · ↑↓ to select · Tab/Enter to confirm', slashSide: 'Start a side chat without interrupting this one; text after it is sent as the first message',
+  slashHeader: 'Commands · ↑↓ to select · Tab/Enter to confirm', slashSide: 'Start a side chat without interrupting this one; text after it is sent as the first message', slashNew: 'Open a blank conversation tab without copying this chat',
   runSkill: (name) => `Run Skill: ${name} (uses the text in the input box)`,
-  mainSession: 'Main', sideSession: (n) => `Side ${n}`,
+  mainSession: 'Main', sideSession: (n) => `Side ${n}`, chatSession: (n) => `Chat ${n}`,
   mainSessionTitle: 'Main chat', forkedFrom: (name) => `Forked from “${name}”`,
   closeSession: (name) => `Close ${name}`, forkTitle: 'Fork a side chat (or type /side)', newSide: 'New side',
   settingsTitle: 'Representer Settings', language: 'Language', langAuto: 'Auto (follow browser)',

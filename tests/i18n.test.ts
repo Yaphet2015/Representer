@@ -67,6 +67,8 @@ describe('localized content', () => {
     const st = forkSession(initialState(), 'main', 1, 's1').state;
     expect(st.sessions.map((s) => sessionLabel(s, 'en'))).toEqual(['Main', 'Side 1']);
     expect(st.sessions.map((s) => sessionLabel(s, 'zh-CN'))).toEqual(['主线', '支线 1']);
+    expect(sessionLabel({ id: 'chat-a', name: '对话 1' }, 'en')).toBe('Chat 1');
+    expect(sessionLabel({ id: 'chat-a', name: '对话 1' }, 'zh-CN')).toBe('对话 1');
   });
 });
 

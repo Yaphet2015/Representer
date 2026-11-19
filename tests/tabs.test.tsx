@@ -99,18 +99,27 @@ describe('floating capsule', () => {
   });
 });
 
-describe('side chat row', () => {
+describe('conversation tab row', () => {
   const two = forkSession(initialState(), MAIN_ID, 0, 'side-a').state;
-  it('scrolls only the chips; the fork icon button sits outside at the far right', () => {
-    const html = render(<SessionChips state={two} onSwitch={() => {}} onClose={() => {}} onFork={() => {}} disabled={false} />);
+  it('is icon-only on the right: a New conversation plus, not a visible text label or a side-chat fork', () => {
+    const html = render(<SessionChips state={two} onSwitch={() => {}} onClose={() => {}} onNew={() => {}} disabled={false} />);
     const scroller = html.indexOf('data-chips-scroller');
-    const fork = html.indexOf('data-fork');
+    const neu = html.indexOf('data-new-tab');
     expect(scroller).toBeGreaterThan(-1);
-    expect(fork).toBeGreaterThan(scroller);
-    // the fork button is a sibling after the scroller closes, not inside it
-    const inner = html.slice(scroller, fork);
+    expect(neu).toBeGreaterThan(scroller);
+    const inner = html.slice(scroller, neu);
     expect((inner.match(/<div/g) ?? []).length).toBeLessThanOrEqual((inner.match(/<\/div>/g) ?? []).length + 1);
-    expect(html).toContain(`title="${messages('en').newSideTitle}"`);
-    expect(html).toMatch(/data-fork[^>]*size-6/);
+    const btn = html.match(/<button[^>]*data-new-tab[^>]*>[\s\S]*?<\/button>/)![0];
+    expect(btn).toContain(`title="${messages('en').newConversationTitle}"`);
+    expect(btn).toContain(`aria-label="${messages('en').newConversationTitle}"`);
+    expect(btn).toMatch(/data-new-tab[^>]*size-6/);
+    expect(btn.replace(/<[^>]+>/g, '').trim()).toBe(''); // icon-only: no visible label
+    expect(html).not.toContain('data-fork');
+    expect(html).toContain(messages('en').sideSession(1)); // side chip still present
+  });
+  it('still shows the New button when only the main tab exists', () => {
+    const html = render(<SessionChips state={initialState()} onSwitch={() => {}} onClose={() => {}} onNew={() => {}} disabled={false} />);
+    expect(html).toContain('data-new-tab');
+    expect(html).toContain(messages('en').mainSession);
   });
 });

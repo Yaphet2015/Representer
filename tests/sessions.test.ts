@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendMessages, closeSession, forkSession, initialState, MAIN_ID, parseSide, setActive } from '../lib/sessions';
+import { appendMessages, closeSession, forkSession, initialState, MAIN_ID, newSession, parseNew, parseSide, setActive, sessionLabel } from '../lib/sessions';
 import { createCache } from '../lib/cache';
 import { memKV } from '../lib/storage';
 
@@ -11,6 +11,44 @@ describe('parseSide', () => {
     expect(parseSide('/SIDE hi\nthere')).toEqual({ message: 'hi\nthere' });
     expect(parseSide('/sidebar')).toBeNull();
     expect(parseSide('hello /side')).toBeNull();
+  });
+});
+
+describe('parseNew', () => {
+  it('parses /new with and without a draft, and rejects lookalikes', () => {
+    expect(parseNew('/new')).toEqual({ draft: '' });
+    expect(parseNew('  /NEW   keep this ')).toEqual({ draft: 'keep this' });
+    expect(parseNew('/new line1\nline2')).toEqual({ draft: 'line1\nline2' });
+    expect(parseNew('/newest')).toBeNull();
+    expect(parseNew('hello /new')).toBeNull();
+  });
+});
+
+describe('newSession', () => {
+  const base = initialState([{ role: 'user', content: 'q1' }, { role: 'assistant', content: 'a1' }], 1);
+  it('opens a blank tab, focuses it, and does not copy history', () => {
+    const { state, id } = newSession(base, 2, 'chat-a');
+    expect(state.active).toBe('chat-a');
+    const chat = state.sessions.find((s) => s.id === id)!;
+    expect(chat.name).toBe('对话 1');
+    expect(chat.parent).toBeUndefined();
+    expect(chat.messages).toEqual([]);
+    expect(state.sessions[0]!.messages).toEqual(base.sessions[0]!.messages);
+    expect(sessionLabel(chat, 'en')).toBe('Chat 1');
+    expect(sessionLabel(chat, 'zh-CN')).toBe('对话 1');
+    const second = newSession(state, 3, 'chat-b');
+    expect(second.state.sessions.map((s) => s.name)).toEqual(['主线', '对话 1', '对话 2']);
+    expect(second.state.active).toBe('chat-b');
+  });
+  it('stays independent of side chats and keeps numbering after a close', () => {
+    const forked = forkSession(base, MAIN_ID, 2, 'side-a').state;
+    const opened = newSession(forked, 3, 'chat-a').state;
+    expect(opened.sessions.map((s) => s.name)).toEqual(['主线', '支线 1', '对话 1']);
+    const closed = closeSession(opened, 'chat-a');
+    expect(closed.active).toBe(MAIN_ID);
+    expect(newSession(closed, 4, 'chat-b').state.sessions.at(-1)!.name).toBe('对话 1');
+    const later = forkSession(closed, MAIN_ID, 5, 'side-b').state;
+    expect(later.sessions.at(-1)!.name).toBe('支线 2');
   });
 });
 

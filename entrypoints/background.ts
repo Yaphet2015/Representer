@@ -8,7 +8,7 @@ import { listModels, testConnection } from '@/lib/models';
 import { providerFor } from '@/lib/provider';
 import { chatContext, createSummarizeRunner } from '@/lib/summarize-run';
 import { serveSummaryPort } from '@/lib/summarize-stream';
-import { appendMessages, closeSession, forkSession, setActive } from '@/lib/sessions';
+import { appendMessages, closeSession, forkSession, newSession, setActive } from '@/lib/sessions';
 import { messages, resolveLang, uiLanguage } from '@/lib/i18n';
 import { chromeKV, loadSettings } from '@/lib/storage';
 import type { ChatMessage } from '@/lib/types';
@@ -50,6 +50,11 @@ export default defineBackground(() => {
     forkSession: async ({ url, from }) => {
       let id = '';
       const state = await cache.updateSessions(url, (s) => { const r = forkSession(s, from); id = r.id; return r.state; });
+      return { state, id };
+    },
+    newSession: async ({ url }) => {
+      let id = '';
+      const state = await cache.updateSessions(url, (s) => { const r = newSession(s); id = r.id; return r.state; });
       return { state, id };
     },
     closeSession: async ({ url, id }) => ({ state: await cache.updateSessions(url, (s) => closeSession(s, id)) }),

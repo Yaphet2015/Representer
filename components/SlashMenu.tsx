@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { DEFAULT_SKILLS, DEFAULT_SKILLS_EN, type Skill } from '@/lib/skills';
 import type { Messages } from '@/lib/i18n';
-import { BulletIcons, Fork, QuizIcon, Sparkle, Translate } from './Icons';
+import { BulletIcons, Fork, Plus, QuizIcon, Sparkle, Translate } from './Icons';
 
-/** One quick action: the `/side` command or a Skill. The same list feeds the `/` menu and the + menu. */
+/** One quick action: `/new`, `/side`, or a Skill. The same list feeds the `/` menu and the + menu. */
 export type SlashItem = { key: string; cmd: string; name: string; desc: string; icon: React.ReactNode; skill?: Skill };
 
 const LINE: Record<string, (p: { className?: string }) => React.JSX.Element> = {
@@ -19,22 +19,24 @@ export function skillDesc(s: Skill, t: Pick<Messages, 'quickDesc'>): string {
   return plain.length > 12 ? plain.slice(0, 12) + '…' : plain;
 }
 
-/** Every quick action, in menu order: Skills (most recent first, as given), then /side. */
-export function quickItems(skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc'>): SlashItem[] {
+/** Every quick action, in menu order: Skills (most recent first, as given), then /new, then /side. */
+export function quickItems(skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc' | 'newName' | 'newDesc'>): SlashItem[] {
   return [
     ...skills.map((s) => { const I = LINE[s.id] ?? Sparkle; return { key: s.id, cmd: '/' + s.name, name: s.name, desc: skillDesc(s, t), icon: <I className={ICON_CLS} />, skill: s }; }),
+    { key: 'new', cmd: '/new', name: t.newName, desc: t.newDesc, icon: <Plus className={ICON_CLS} /> },
     { key: 'side', cmd: '/side', name: t.sideName, desc: t.sideDesc, icon: <Fork className={ICON_CLS} /> },
   ];
 }
 
 /** Items for what is typed: the menu is open exactly while the input starts with "/" and something matches. */
-export function slashItems(input: string, skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc'>): SlashItem[] {
+export function slashItems(input: string, skills: Skill[], t: Pick<Messages, 'quickDesc' | 'sideName' | 'sideDesc' | 'newName' | 'newDesc'>): SlashItem[] {
   if (!input.startsWith('/')) return [];
   const q = input.slice(1).split(/\s/)[0]!.toLowerCase();
-  if (/\s/.test(input) && !/^\/side\b/i.test(input)) return [];
+  if (/\s/.test(input) && !/^\/(?:side|new)\b/i.test(input)) return [];
   const all = quickItems(skills, t);
-  const side = all.filter((i) => i.key === 'side');
-  if (/^\/side\s/i.test(input)) return side;
+  const command = (key: 'side' | 'new') => all.filter((i) => i.key === key);
+  if (/^\/side\s/i.test(input)) return command('side');
+  if (/^\/new\s/i.test(input)) return command('new');
   return all.filter((i) => i.cmd.slice(1).toLowerCase().includes(q) || i.name.toLowerCase().includes(q));
 }
 
@@ -47,8 +49,9 @@ export function slashKeyAction(e: { key: string; shiftKey: boolean }, items: Sla
   if (e.key === 'ArrowUp') return { type: 'move', active: (active - 1 + items.length) % items.length };
   if (e.key === 'Escape') return { type: 'close' };
   const item = items[active];
-  const typedSide = /^\/side(\s|$)/i.test(value);
-  if (item && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !(typedSide && item.key === 'side')))) return { type: 'pick', item };
+  const typedCommand = /^\/(?:side|new)(\s|$)/i.test(value);
+  const commandItem = item && (item.key === 'side' || item.key === 'new');
+  if (item && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !(typedCommand && commandItem)))) return { type: 'pick', item };
   return null;
 }
 
