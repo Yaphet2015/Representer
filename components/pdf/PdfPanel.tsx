@@ -9,14 +9,28 @@ import { formatVisualInspectReport, type RenderedPdfPageBytes } from '@/lib/pdf-
 import { pageHash } from '@/lib/cache';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
+import { createThoughtTicker } from '@/lib/thinking';
 import type { Summary } from '@/lib/types';
 import { Overview, OverviewSource } from '../Overview';
 import { Button } from '../bui/Button';
+import LoadingState from '../bui/LoadingState';
+import { ErrorView, NoOverview } from '../EmptyStates';
+import { useT } from '../i18n';
+import { Skeleton } from '../Skeleton';
+import { ThoughtLine } from '../ThoughtLine';
 import { useTheme } from '../theme';
 import { PdfChat } from './PdfChat';
 
+function panelTabId(): number | undefined {
+  const raw = new URLSearchParams(location.search).get('tab');
+  if (raw == null || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
 async function context(): Promise<PdfContext> {
-  const r: unknown = await chrome.runtime.sendMessage({ type: PDF_CONTEXT });
+  const tabId = panelTabId();
+  const r: unknown = await chrome.runtime.sendMessage({ type: PDF_CONTEXT, ...(tabId !== undefined ? { tabId } : {}) });
   return isPdfContext(r) ? r : { kind: 'none' };
 }
 
@@ -38,14 +52,14 @@ export function PdfPanel() {
         apply(r);
       });
     };
-    const update = (id: number, info: chrome.tabs.OnUpdatedInfo) => { const g = selected.current; if (g?.tabId === id && (info.status === 'loading' || (info.url && publicPdfUrl(info.url) !== g.url))) refresh(); };
+    const update = (id: number, info: chrome.tabs.OnUpdatedInfo) => { const g = selected.current; if (g?.tabId === id && info.url && publicPdfUrl(info.url) !== g.url) refresh(); };
     const message = (msg: unknown) => { if (msg && typeof msg === 'object' && 'type' in msg && msg.type === 'rp-pdf-selected') refresh(); };
     chrome.tabs.onActivated.addListener(activate); chrome.tabs.onUpdated.addListener(update); chrome.runtime.onMessage.addListener(message);
     return () => { requests.current++; chrome.tabs.onActivated.removeListener(activate); chrome.tabs.onUpdated.removeListener(update); chrome.runtime.onMessage.removeListener(message); };
   }, []);
   return <main data-theme={theme} className="relative flex h-screen min-w-0 flex-col bg-page font-sans text-ink antialiased">
     <header className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3"><h1 className="text-[15px] font-[650]">Representer <span className="text-ink-3">/ PDF</span></h1><Button variant="quiet" size="sm" onClick={() => { void chrome.runtime.openOptionsPage(); }}>Settings</Button></header>
-    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button to select it. Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. All pages are read locally, including image-only pages. Your model can inspect rendered page images on demand for charts and figures when it supports vision. Password-protected files are not supported.</p></div>}
+    {ctx.kind === 'pdf' ? <PdfDocument key={ctx.grant.token} grant={ctx.grant} /> : <div className="space-y-3 p-4 text-[13px] leading-6 text-ink-2"><p>{ctx.kind === 'web' ? 'This is a webpage. Its floating panel is open; you can close this sidebar.' : 'Open a public HTTP(S) PDF and click the Representer toolbar button, or press the same shortcut used on webpages (⌘E / Ctrl+E). Selection expires after 30 minutes or when the tab navigates.'}</p><p>The PDF stays in its original tab. All pages are read locally, including image-only pages. Your model can inspect rendered page images on demand for charts and figures when it supports vision. Password-protected files are not supported.</p></div>}
   </main>;
 }
 
@@ -100,48 +114,101 @@ async function openVisualLink(grant: PdfGrant, doc: ReadPdfResult, previous: Vis
   };
 }
 
-type Load = { kind: 'idle' } | { kind: 'loading'; page: number; total: number } | { kind: 'error'; message: string } | { kind: 'ready'; doc: ReadPdfResult };
+type Load = { kind: 'loading'; page: number; total: number } | { kind: 'error'; message: string } | { kind: 'ready'; doc: ReadPdfResult };
 function PdfDocument({ grant }: { grant: PdfGrant }) {
-  const [load, setLoad] = useState<Load>({ kind: 'idle' });
+  const t = useT();
+  const [load, setLoad] = useState<Load>({ kind: 'loading', page: 0, total: 0 });
   const [summary, setSummary] = useState<Summary | null>(null), [partial, setPartial] = useState<Summary | null>(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [status, setStatus] = useState(''), [inspectNotice, setInspectNotice] = useState('');
+  const [loading, setLoading] = useState(true), [error, setError] = useState(''), [status, setStatus] = useState<OverviewStatus>(null);
+  const [thought, setThought] = useState(''), [startedAt, setStartedAt] = useState(() => Date.now());
+  const [cancelled, setCancelled] = useState(false), [inspectNotice, setInspectNotice] = useState('');
+  const [cacheInfo, setCacheInfo] = useState<{ createdAt?: number } | null>(null);
   const [tab, setTab] = useState<'overview' | 'chat'>('overview'), [sourcePage, setSourcePage] = useState<number | null>(null);
+  const [flash, setFlash] = useState('');
   const operation = useRef(0), ac = useRef<AbortController | null>(null), stream = useRef<ReturnType<typeof streamSummary> | null>(null), visual = useRef<VisualLink | null>(null);
+  const loadRef = useRef(load); loadRef.current = load;
   const key = pdfCacheUrl(grant.url);
   const validate = useCallback(async () => {
     const r = await context();
     if (r.kind !== 'pdf' || r.grant.token !== grant.token || r.grant.url !== grant.url) throw new Error('The selected tab changed or authorization expired. Click the toolbar button on the PDF again.');
   }, [grant.token, grant.url]);
-  useEffect(() => () => { operation.current++; ac.current?.abort(); stream.current?.stop(); const link = visual.current; visual.current = null; void link?.close(); }, [grant]);
-  const read = async () => {
-    const seq = ++operation.current; ac.current?.abort(); const ctrl = new AbortController(); ac.current = ctrl;
-    setLoad({ kind: 'loading', page: 0, total: 0 }); setError(''); setSummary(null);
+
+  const run = useCallback(async (force: boolean) => {
+    const seq = ++operation.current;
+    ac.current?.abort(); stream.current?.stop(); stream.current = null;
+    const ctrl = new AbortController(); ac.current = ctrl;
+    const stale = () => seq !== operation.current;
+    setCacheInfo(null); setError(''); setFlash(''); setCancelled(false); setPartial(null); setThought(''); setStatus(null); setInspectNotice(''); setStartedAt(Date.now()); setLoading(true);
+    if (force) { setSummary(null); setTab('overview'); }
     try {
       await validate(); ctrl.signal.throwIfAborted();
-      const { readPdf } = await import('@/lib/pdf-read'); ctrl.signal.throwIfAborted();
-      const doc = await readPdf(grant.url, ctrl.signal, (page, total) => { if (seq === operation.current) setLoad({ kind: 'loading', page, total }); });
-      await validate(); ctrl.signal.throwIfAborted();
-      const cached = await rpc('getCached', { url: key, hash: pageHash(doc.content) });
-      if (seq !== operation.current) return;
-      try { visual.current = await openVisualLink(grant, doc, visual.current); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
-      if (seq !== operation.current) return;
-      setLoad({ kind: 'ready', doc }); if (cached.ok && cached.cached) setSummary(cached.cached.summary);
-    } catch (e) { if (seq === operation.current) setLoad({ kind: 'error', message: ctrl.signal.aborted ? 'Reading cancelled.' : e instanceof Error ? e.message : String(e) }); }
-  };
-  const summarize = async (force = false) => {
-    if (load.kind !== 'ready' || busy) return;
-    const seq = ++operation.current; setBusy(true); setError(''); setStatus(''); setInspectNotice(''); setPartial(null);
-    try {
-      await validate(); if (seq !== operation.current) return;
-      try { visual.current = await openVisualLink(grant, load.doc, visual.current); } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
-      if (seq !== operation.current) return;
-      const s = streamSummary({ url: key, title: load.doc.title, content: load.doc.content, force }, (p) => { if (seq === operation.current) setPartial(p); }, undefined, undefined, (s) => { if (seq === operation.current) setStatus(statusLabel(s)); });
-      stream.current = s; const r = await s.done;
-      if (seq !== operation.current) return;
-      if ('done' in r) { setSummary(r.summary); setInspectNotice(r.visualInspect ? formatVisualInspectReport(r.visualInspect) : ''); } else if ('error' in r) setError(r.error);
-    } catch (e) { if (seq === operation.current) setError(e instanceof Error ? e.message : String(e)); }
-    finally { if (seq === operation.current) { setBusy(false); setPartial(null); } }
-  };
+      let doc = loadRef.current.kind === 'ready' ? loadRef.current.doc : undefined;
+      if (!doc) {
+        setLoad({ kind: 'loading', page: 0, total: 0 });
+        const { readPdf } = await import('@/lib/pdf-read'); ctrl.signal.throwIfAborted();
+        doc = await readPdf(grant.url, ctrl.signal, (page, total) => { if (!stale()) setLoad({ kind: 'loading', page, total }); });
+        await validate(); ctrl.signal.throwIfAborted();
+      }
+      if (stale()) return;
+      try { visual.current = await openVisualLink(grant, doc, visual.current); } catch (e) { if (!stale()) setError(e instanceof Error ? e.message : String(e)); }
+      if (stale()) return;
+      setLoad({ kind: 'ready', doc });
+      if (!force) {
+        const cached = await rpc('getCached', { url: key, hash: pageHash(doc.content) });
+        if (stale()) return;
+        if (cached.ok && cached.cached) {
+          setCacheInfo({ createdAt: cached.cached.createdAt }); setSummary(cached.cached.summary);
+          return;
+        }
+      }
+      const ticker = createThoughtTicker((line) => { if (!stale()) setThought(line); });
+      const s = streamSummary({ url: key, title: doc.title, content: doc.content, force }, (p) => { if (!stale()) setPartial(p); }, undefined, (d) => ticker.push(d), (st) => { if (!stale()) setStatus(st); });
+      stream.current = s;
+      const r = await s.done.finally(() => ticker.stop());
+      if (stream.current === s) stream.current = null;
+      if (stale()) return;
+      if ('error' in r) throw new Error(r.error);
+      if ('cancelled' in r) { setCancelled(true); return; }
+      setSummary(r.summary);
+      setInspectNotice(r.visualInspect ? formatVisualInspectReport(r.visualInspect) : '');
+      if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 1500); }
+    } catch (e) {
+      if (stale()) return;
+      if (ctrl.signal.aborted) { setCancelled(true); return; }
+      const message = e instanceof Error ? e.message : String(e);
+      if (loadRef.current.kind !== 'ready') setLoad({ kind: 'error', message });
+      setError(message);
+    } finally {
+      if (!stale()) { setLoading(false); setPartial(null); }
+    }
+  }, [grant, key, validate, t.updated]);
+
+  const cancel = useCallback(async () => {
+    const seq = ++operation.current;
+    ac.current?.abort(); stream.current?.stop(); stream.current = null;
+    setError(''); setPartial(null); setThought(''); setStatus(null); setLoading(false);
+    const cached = await rpc('getCached', { url: key });
+    if (seq !== operation.current) return;
+    if (cached.ok && cached.cached) {
+      setCacheInfo({ createdAt: cached.cached.createdAt }); setSummary(cached.cached.summary); setCancelled(false);
+    } else {
+      setSummary(null); setCancelled(true);
+    }
+  }, [key]);
+
+  // Start once per authorized sidebar document. A new token remounts this component.
+  // `run` is omitted from deps so later identity changes cannot start a second paid summary.
+  useEffect(() => {
+    void run(false);
+    return () => {
+      operation.current++;
+      ac.current?.abort();
+      stream.current?.stop();
+      stream.current = null;
+      const link = visual.current; visual.current = null; void link?.close();
+    };
+  }, [grant.token, grant.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const doc = load.kind === 'ready' ? load.doc : null;
   const renderSourcePage = useCallback((n: number, signal?: AbortSignal) => {
     const link = visual.current;
@@ -154,25 +221,45 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
     locate: (item: { anchor?: string }) => { const n = doc && item.anchor ? doc.pageByAnchor[item.anchor] : undefined; if (n) setSourcePage(n); },
   }), [doc]);
   const shown = partial ?? summary;
+  const readingLabel = load.kind === 'loading'
+    ? (load.total ? `Reading page ${load.page}/${load.total}` : 'Downloading PDF…')
+    : thought ? <ThoughtLine line={thought} /> : statusLabel(status);
+
   return <>
     <div className="shrink-0 space-y-2 border-b border-line px-4 py-3">
       <p className="truncate text-[12px] text-ink-3" title={grant.url}>{grant.url}</p>
       <p className="text-[12px] leading-5 text-ink-2">All pages stay available to your model, including image-only pages. The model can inspect rendered page images on demand for charts and figures (a vision-capable OpenAI-compatible model is required). Page sources open here, not as highlights in the original viewer. Password-protected files are not supported.</p>
       {doc ? <p className="text-[12px] text-ink-3">{doc.pages.length} pages · {doc.bytes.toLocaleString()} bytes · {doc.content.length.toLocaleString()} characters{doc.emptyPages.length > 0 && ` · No selectable text on pages ${doc.emptyPages.join(', ')}`}{doc.catalog.some(pageNeedsVisualInspection) && ` · ${doc.catalog.filter(pageNeedsVisualInspection).length} page${doc.catalog.filter(pageNeedsVisualInspection).length === 1 ? '' : 's'} flagged for visual inspection`}</p> : <p className="text-[12px] text-ink-3">Limits: 64 MiB · 300 pages · 350,000 text characters · 90 seconds. No redirects or sign-in cookies.</p>}
-      {load.kind === 'loading' ? <div className="flex items-center gap-2 text-[12px] text-ink-2"><span>{load.total ? `Reading page ${load.page}/${load.total}` : 'Downloading PDF…'}</span><Button size="sm" onClick={() => ac.current?.abort()}>Cancel</Button></div> : !doc ? <Button size="sm" variant="accent" onClick={() => { void read(); }}>Read PDF locally</Button> : <div className="flex flex-wrap items-center gap-2">
-        {!summary && !busy && <Button size="sm" variant="accent" onClick={() => { void summarize(); }}>Summarize with my model</Button>}
-        {busy && <Button size="sm" onClick={() => stream.current?.stop()}>Stop summary</Button>}
-        <Button size="sm" variant="quiet" onClick={() => setSourcePage(1)}>Source pages</Button>
-        {summary && <><Button size="sm" variant="quiet" disabled={busy} onClick={() => { void summarize(true); }}>Regenerate</Button><Button size="sm" variant={tab === 'overview' ? 'ghost' : 'quiet'} onClick={() => setTab('overview')}>Overview</Button><Button size="sm" variant={tab === 'chat' ? 'ghost' : 'quiet'} onClick={() => setTab('chat')}>Chat</Button></>}
-      </div>}
-      {load.kind === 'error' && <p role="alert" className="text-[12px] text-red">{load.message}</p>}
-      {error && <p role="alert" className="text-[12px] text-red">{error}</p>}
-      {busy && <p role="status" className="text-[12px] text-ink-3">{status || 'Summarizing…'}</p>}
-      {!busy && inspectNotice && <p role="status" className="text-[12px] leading-5 text-ink-2">{inspectNotice}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        {doc && <Button size="sm" variant="quiet" onClick={() => setSourcePage(1)}>Source pages</Button>}
+        <Button size="sm" variant={tab === 'overview' ? 'ghost' : 'quiet'} onClick={() => setTab('overview')}>Overview</Button>
+        <Button size="sm" variant={tab === 'chat' ? 'ghost' : 'quiet'} onClick={() => setTab('chat')} disabled={!doc}>Chat</Button>
+      </div>
+      {!loading && inspectNotice && <p role="status" className="text-[12px] leading-5 text-ink-2">{inspectNotice}</p>}
+      {flash && <p data-flash className="text-[11.5px] text-ink-3">{flash}</p>}
     </div>
-    {doc && (tab === 'chat' && summary ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
-      {shown ? <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc.title} host={new URL(grant.url).hostname} streaming={busy} /></OverviewSource.Provider> : <p className="px-4 text-[13px] leading-6 text-ink-2">All pages have been read locally. Choose Summarize to send the text and allow on-demand page images to your configured model. Nothing is sent until you choose it.</p>}
-    </div>)}
+    {tab === 'chat' && doc ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
+      {loading && shown && (
+        <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc?.title} host={new URL(grant.url).hostname} streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined}>
+          <Button variant="secondary" size="xs" data-cancel onClick={() => { void cancel(); }}>{t.cancelSummary}</Button>
+        </Overview></OverviewSource.Provider>
+      )}
+      {loading && !shown && (
+        <div className="flex h-full flex-col overflow-hidden">
+          <div data-status-row className="flex h-6 shrink-0 items-center justify-between gap-2 px-4">
+            <LoadingState label={readingLabel} tone="bg-accent" since={startedAt} />
+            <Button variant="secondary" size="xs" data-cancel onClick={() => { void cancel(); }} className="shrink-0">{t.cancelSummary}</Button>
+          </div>
+          <div className="-mt-2 min-h-0 flex-1"><Skeleton /></div>
+        </div>
+      )}
+      {!loading && error && <ErrorView error={error} retry={() => { void run(true); }} onChat={() => { if (doc) setTab('chat'); }} />}
+      {!loading && !error && !summary && cancelled && <NoOverview onStart={() => { void run(true); }} onChat={() => { if (doc) setTab('chat'); }} />}
+      {!loading && summary && (
+        <OverviewSource.Provider value={source}><Overview summary={summary} pageTitle={doc?.title} host={new URL(grant.url).hostname} fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} onRegenerate={() => { void run(true); }} regenerated={!!flash} /></OverviewSource.Provider>
+      )}
+      {load.kind === 'error' && !error && <p role="alert" className="px-4 text-[12px] text-red">{load.message}</p>}
+    </div>}
     {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} renderPage={renderSourcePage} />}
   </>;
 }

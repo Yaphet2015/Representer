@@ -1,4 +1,4 @@
-/** Loaded only by the PDF side panel, after the reader clicks Read PDF. Never imported by the webpage bundle. */
+/** Loaded only by the PDF side panel after the user opens an authorized sidebar. Never imported by the webpage bundle. */
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { operatorListHasImages } from './pdf-render';

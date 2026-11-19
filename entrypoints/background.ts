@@ -28,10 +28,8 @@ export default defineBackground(() => {
     if (tabId == null) return;
     try { await chrome.tabs.sendMessage(tabId, TOGGLE); } catch { /* no content script */ }
   };
-  chrome.commands.onCommand.addListener(async (cmd, tab) => {
-    if (cmd !== COMMAND) return;
-    toggle(tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
-  });
+  // Toolbar and the existing toggle-overlay command share one router in installPdfEntry
+  // (PDF → side panel, webpage → overlay). Do not query or await before sidePanel.open().
   installPdfEntry(toggle);
 
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
