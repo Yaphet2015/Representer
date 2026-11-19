@@ -144,14 +144,6 @@ function Options() {
             </span>
           </div>
 
-          {import.meta.env.VITE_RP_CMD_DIAG === '1' && (
-            <div data-cmd-trace-banner className="mb-6 rounded-[10px] border border-amber bg-amber-tint px-4 py-3 text-[13px] text-ink">
-              <div className="font-medium">TEST ONLY command-trace build — not for release.</div>
-              <p className="mt-1 text-[12.5px] text-ink-2">This build records whether the toolbar or shortcut reached the worker, whether Chrome supplied a tab, the URL scheme kind (never the URL), and whether sidePanel.open was called or rejected. No page content, tokens, or credentials are stored.</p>
-              <button type="button" className="mt-2 text-[12.5px] font-medium text-accent hover:underline" onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL('cmd-trace.html') })}>Open command trace</button>
-            </div>
-          )}
-
           <div className="space-y-6">
             <Card id="general" data-general title={t.generalTitle}>
               <div className="space-y-4">
