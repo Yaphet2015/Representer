@@ -82,6 +82,7 @@ export const Ic = {
   plus: <path d="M8 3v10M3 8h10" />,
   ext: <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4" />,
   check: <path d="M3.5 8.5l3 3 6-7" />,
+  clock: <><circle cx="8" cy="8" r="6" /><path d="M8 4.5V8l2.5 1.5" /></>,
 };
 export function Icon({ d, className }: { d: ReactNode; className?: string }) {
   return <svg aria-hidden viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={cn('size-4 shrink-0', className)}>{d}</svg>;
