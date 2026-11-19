@@ -61,16 +61,25 @@ const LINK_KEYS = new Set(['anchor', 'anchors', 'quote', 'quotes']);
 
 export const CHAT_RULES = "Answer concisely, in the user's language, using Markdown when helpful.";
 
+/** PDF visual access: on-demand page images, never a claim that every figure was already in the text layer. */
+export function pdfVisualGuide(): string {
+  return `This document is a PDF. Every page is available, including pages with no selectable text. Charts, figures, photos, vector drawings and scanned wording can be missing from the text layer even on pages that also have a lot of text — do not treat a short or long text layer, or a catalog flag of no image paint operators, as proof that a figure is absent or as a reason to skip inspect_pdf_page. Prefer pages marked "inspect first", then any page whose figures, charts, diagrams or layout matter. One page per call. The inspect budget is a per-run cap and is not renewable mid-run; if it is reached, say which pages were and were not inspected and do not claim the whole document was visually read. A later run can inspect other pages. Cite the existing block id for that page. If inspect_pdf_page reports that this model cannot accept images, say so clearly and do not invent chart, figure or scanned values.`;
+}
+export function withPdfVisual(text: string, catalog?: string): string {
+  return catalog ? `${text}\n\n${pdfVisualGuide()}\n${catalog}` : text;
+}
+
+
 /**
  * With a summary: the summary JSON plus the page text, as before. Without one (cancelled, failed or not generated
  * yet): the page is an attachment (page.md) the model reads on demand, see lib/attachment.ts.
  */
-export function chatSystem(title: string, summary: Summary | null | undefined, content: string, custom?: string) {
+export function chatSystem(title: string, summary: Summary | null | undefined, content: string, custom?: string, visualCatalog?: string) {
   if (!summary) {
     return withUserPrompt(`You are a helpful assistant answering questions about the web page "${title}".
 ${userFirst(custom)}
 ${attachmentPrompt(title, content)}
-${CHAT_RULES}`, custom, CHAT_NOTE);
+${visualCatalog ? `${pdfVisualGuide()}\n${visualCatalog}\n` : ''}${CHAT_RULES}`, custom, CHAT_NOTE);
   }
   return withUserPrompt(`You are a helpful assistant answering questions about the web page "${title}".
 ${userFirst(custom)}
@@ -79,5 +88,5 @@ Page content (Markdown):
 <page_content>
 ${stripMarkers(content).slice(0, MAX_CONTENT_CHARS)}
 </page_content>
-${CHAT_RULES}`, custom, CHAT_NOTE);
+${visualCatalog ? `${pdfVisualGuide()}\n${visualCatalog}\n` : ''}${CHAT_RULES}`, custom, CHAT_NOTE);
 }

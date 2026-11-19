@@ -67,7 +67,7 @@ async function one(p: Page, run: number): Promise<Row> {
   let s: Summary | null = null, err = '';
   try {
     s = await provider.summarize(p.title, p.url, content, undefined, () => { ttft ??= performance.now(); }, undefined, {
-      onStatus: (st) => { if (st && typeof st === 'object' && st.read === st.total) readAt ??= performance.now(); },
+      onStatus: (st) => { if (st && typeof st === 'object' && 'read' in st && st.read === st.total) readAt ??= performance.now(); },
       onPartial: (x) => { if (x.sections.length) ttft ??= performance.now(); },
       onUsage: (x) => { u.inTok += x.input; u.cacheTok += x.cacheRead; u.outTok += x.output; u.reasonTok += x.reasoning ?? 0; u.calls++; },
     });

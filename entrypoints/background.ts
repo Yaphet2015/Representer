@@ -1,3 +1,6 @@
+import { installPdfEntry } from '@/lib/pdf-entry';
+import { visualSession } from '@/lib/pdf-visual-sessions';
+import { visualInspectReport } from '@/lib/pdf-visual';
 import { createCache, pageHash } from '@/lib/cache';
 import { createFrameRelay } from '@/lib/frame-relay';
 import { CHAT_PORT, SUMMARY_PORT, TOGGLE, type Api, type ChatEvent, type ChatRequest, type MsgType, type Request } from '@/lib/messages';
@@ -29,7 +32,7 @@ export default defineBackground(() => {
     if (cmd !== COMMAND) return;
     toggle(tab?.id ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id);
   });
-  chrome.action.onClicked.addListener((tab) => toggle(tab.id));
+  installPdfEntry(toggle);
 
   type Handlers = { [K in MsgType]: (req: Api[K]['req']) => Promise<Api[K]['res']> };
   const handlers: Handlers = {
@@ -37,7 +40,7 @@ export default defineBackground(() => {
     summarize: async ({ url, title, content, force, anchors }) => {
       if (!force) { const c = await cache.getSummary(url, pageHash(content)); if (c) return { summary: c.summary, anchors: c.anchors }; }
       const { s, lang } = await ctx();
-      return summarizer.run({ url, title, content, anchors }, (signal) => providerFor(s, lang).summarize(title, url, content, signal));
+      return summarizer.run({ url, title, content, anchors }, (signal) => providerFor(s, lang).summarize(title, url, content, signal, undefined, undefined, { visual: visualSession(url) }));
     },
     cancelSummarize: async ({ url }) => { summarizer.cancel(url); return {}; },
     getShortcut: async () => ({ shortcut: (await chrome.commands.getAll()).find((c) => c.name === COMMAND)?.shortcut ?? '' }),
@@ -75,8 +78,9 @@ export default defineBackground(() => {
       cache, runner: summarizer,
       summarize: async ({ url, title, content }, signal, onDelta, onThinking, more) => {
         const { s, lang } = await ctx();
-        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, more);
+        return providerFor(s, lang).summarize(title, url, content, signal, onDelta, onThinking, { ...more, visual: visualSession(url) });
       },
+      visualInspect: (url) => { const v = visualSession(url); return v ? visualInspectReport(v) : undefined; },
     });
   });
 
@@ -91,7 +95,7 @@ export default defineBackground(() => {
         const c = await chatContext(cache, url, page);
         if (!c) throw new Error(messages(lang).summaryExpired);
         const history = ((await cache.getSessions(url)).sessions.find((x) => x.id === sid)?.messages ?? []).filter((m) => m.content);
-        const out = await providerFor(s, lang).chat(c, history, text, (delta) => post({ delta }), ac.signal);
+        const out = await providerFor(s, lang).chat({ ...c, visual: visualSession(url) }, history, text, (delta) => post({ delta }), ac.signal);
         const userMsg: ChatMessage = label ? { role: 'user', content: text, label } : { role: 'user', content: text };
         await cache.updateSessions(url, (s) => appendMessages(s, sid, [userMsg, { role: 'assistant', content: out }]));
         post({ done: true, text: out });

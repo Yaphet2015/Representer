@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { defineConfig } from 'wxt';
 
 // VITE_RP_DIAG=1 builds the dev diagnostics page (entrypoints/diag) and stamps a unique version_name;
@@ -11,15 +11,24 @@ const BUILD = DIAG ? `diag-${sha}-${new Date().toISOString().replace(/[-:]/g, ''
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
-  filterEntrypoints: ['background', 'content', 'options', ...(DIAG ? ['diag'] : [])],
+  hooks: { 'build:publicAssets': (_wxt, files) => {
+    files.push({ absoluteSrc: new URL('./node_modules/pdfjs-dist/LICENSE', import.meta.url).pathname, relativeDest: 'pdf-assets/LICENSE' });
+    for (const dir of ['cmaps', 'standard_fonts']) {
+      const base = new URL(`./node_modules/pdfjs-dist/${dir}/`, import.meta.url);
+      for (const name of readdirSync(base)) files.push({ absoluteSrc: new URL(name, base).pathname, relativeDest: `pdf-assets/${dir}/${name}` });
+    }
+  } },
+  filterEntrypoints: ['background', 'content', 'options', ...(DIAG ? ['diag'] : []), 'pdf-panel'],
   vite: () => ({ define: { __RP_BUILD__: JSON.stringify(BUILD) } }),
   manifest: {
     name: '__MSG_extName__',
+    minimum_chrome_version: '119',
+    side_panel: { default_path: 'pdf-panel.html' },
     short_name: '__MSG_extShortName__',
     description: '__MSG_extDescription__',
     default_locale: 'en',
     ...(DIAG ? { version_name: `${version} ${BUILD}` } : {}),
-    permissions: ['storage'],
+    permissions: ['storage', 'sidePanel'],
     host_permissions: ['<all_urls>'],
     commands: {
       'toggle-overlay': {
