@@ -6,11 +6,13 @@ import { rpc } from '@/lib/messages';
 import { isLocalUrl } from '@/lib/url';
 import { createAutosaver, errorKind, failedField, type SaveStatus } from '@/lib/autosave';
 import { cn } from '@/lib/cn';
+import { SectionTail, useActiveSection } from '@/components/options/useActiveSection';
 import { Button } from '@/components/bui/Button';
 import { useMock } from '@/lib/mock';
 import { mockText } from '@/lib/mock-text';
 import { ModelCombobox } from '@/components/ModelCombobox';
 import { SkillsManager } from '@/components/SkillsManager';
+import { HistoryCard } from '@/components/options/HistoryCard';
 import { LangProvider, useLang, useT } from '@/components/i18n';
 import { useTheme } from '@/components/theme';
 import { Card, Field, Icon, Ic, Input, Kbd, Select, Switch, Tag } from '@/components/options/ui';
@@ -18,7 +20,7 @@ import type { TestResult } from '@/lib/models';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/types';
 
 type Conn = { state: 'idle' } | { state: 'testing' } | { state: 'ok'; ms: number; reply: string } | { state: 'fail'; error: string };
-export const SECTIONS = ['general', 'connection', 'instructions', 'skills', 'shortcuts'] as const;
+export const SECTIONS = ['general', 'connection', 'instructions', 'skills', 'shortcuts', 'history'] as const;
 const MAX_PROMPT = 4000;
 /** Mirror the theme into localStorage so public/theme-boot.js can apply it before first paint. */
 export const cacheTheme = (pref: Settings['theme']) => { try { localStorage.setItem('rp-theme', pref ?? 'system'); } catch {} };
@@ -38,7 +40,7 @@ function Options() {
   const [mError, setMError] = useState('');
   const [conn, setConn] = useState<Conn>({ state: 'idle' });
   const [showKey, setShowKey] = useState(false);
-  const [active, setActive] = useState<string>('general');
+  const [active, go] = useActiveSection(SECTIONS);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void; id: number } | null>(null);
   const saver = useMemo(() => createAutosaver<Settings>((v) => saveSettings(v), setStatus), []);
   const testId = useRef(0);
@@ -91,18 +93,6 @@ function Options() {
     chrome.commands.getAll((c) => setShortcut(c.find((x) => x.name === 'toggle-overlay')?.shortcut || ''));
     return off;
   }, []);
-  // nav highlight follows scroll
-  useEffect(() => {
-    const els = SECTIONS.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
-    const io = new IntersectionObserver((es) => {
-      const vis = es.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      // the first card sits above the -10% root margin at scroll 0, so pin it there
-      if (window.scrollY < 40) setActive(SECTIONS[0]);
-      else if (vis) setActive(vis.target.id);
-    }, { rootMargin: '-10% 0px -60% 0px' });
-    els.forEach((e) => io.observe(e)); return () => io.disconnect();
-  }, []);
-
   const bad = conn.state === 'fail' ? failedField(conn.error) : null;
   const pill = conn.state === 'testing' ? { cls: 'bg-accent-tint text-accent-ink', dot: 'bg-accent animate-pulse', text: t.stTesting }
     : conn.state === 'ok' ? { cls: 'bg-[color-mix(in_srgb,var(--green)_14%,transparent)] text-green', dot: 'bg-green', text: t.stOk(conn.ms) }
@@ -112,8 +102,8 @@ function Options() {
     { id: 'general', label: t.navGeneral, icon: Ic.gear },
     { id: 'connection', label: t.navConnection, icon: Ic.plug }, { id: 'instructions', label: t.navInstructions, icon: Ic.pen },
     { id: 'skills', label: t.navSkills, icon: Ic.bolt }, { id: 'shortcuts', label: t.navShortcuts, icon: Ic.kbd },
+    { id: 'history', label: t.navHistory, icon: Ic.clock },
   ];
-  const go = (id: string) => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); };
   const promptLen = (s.systemPrompt ?? '').length;
   const mod = isMac ? '⌘' : 'Ctrl';
   const keys = (sc: string) => (isMac ? sc.replace(/[⌘⇧⌥⌃]/g, (m) => ` ${m} `) : sc.replace(/\+/g, ' ')).trim().split(/\s+/).filter(Boolean);
@@ -143,7 +133,7 @@ function Options() {
 
       <main className="relative min-w-0 flex-1">
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[220px]" style={{ background: 'linear-gradient(to bottom, color-mix(in srgb, var(--accent) 10%, transparent), transparent)' }} />
-        <div className="relative mx-auto max-w-[760px] px-6 pb-12 pt-8 min-[860px]:px-12">
+        <div className="relative mx-auto max-w-[760px] px-6 pb-6 pt-8 min-[860px]:px-12">
           <div className="mb-6 flex items-center justify-between gap-4">
             <h1 className="text-[22px] font-[650] leading-8">{t.settingsShort}</h1>
             <span data-save-status role="status" className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
@@ -259,6 +249,10 @@ function Options() {
             </Card>
 
           </div>
+        </div>
+        {/* History is master-detail, so it alone gets a wider column; the forms above keep their reading width */}
+        <div className="relative mx-auto max-w-[1100px] px-6 pb-12 min-[860px]:px-12">
+          <SectionTail><HistoryCard /></SectionTail>
         </div>
       </main>
 
