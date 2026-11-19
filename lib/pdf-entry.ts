@@ -3,6 +3,7 @@ import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
 import { createPdfVisualSession } from './pdf-visual';
 import { PDF_VISUAL_PORT, isPdfVisualRegister, panelRenderBackend } from './pdf-visual-port';
+import { commandTraceEnabled, recordCommandTrace, urlKindOf } from './command-trace';
 
 /** Same manifest command as the webpage overlay (chrome.commands). Reserved `_execute_action` is not used: it does not fire onCommand and would drop existing user bindings. */
 export const TOGGLE_COMMAND = 'toggle-overlay';
@@ -75,22 +76,35 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   // Shared toolbar / keyboard path. Must stay synchronous through sidePanel.open(): that method
   // requires a user gesture (https://developer.chrome.com/docs/extensions/reference/api/sidePanel),
   // and an `await` before open() drops it. `onCommand` provides the active tab; do not query first.
-  const activate = (tab?: { id?: number; url?: string }) => {
-    if (tab?.id === undefined) return;
+  const trace = (tab: { id?: number; url?: string } | undefined, source: 'command' | 'action', outcome: 'no-tab' | 'no-usable-url' | 'overlay' | 'open-called' | 'open-ok' | 'open-failed', openError?: string) => {
+    if (!commandTraceEnabled) return;
+    void recordCommandTrace({
+      source, command: source === 'command' ? TOGGLE_COMMAND : undefined,
+      hasTab: tab?.id !== undefined, tabId: tab?.id, urlKind: urlKindOf(tab?.url), outcome, openError,
+    });
+  };
+  const activate = (tab?: { id?: number; url?: string }, source: 'command' | 'action' = 'action') => {
+    if (tab?.id === undefined) { trace(tab, source, 'no-tab'); return; }
     const id = tab.id, known = documents.get(id);
-    if (known?.kind === 'html' && known.url === tab.url) { void toggle(id); return; }
+    if (known?.kind === 'html' && known.url === tab.url) { trace(tab, source, 'overlay'); void toggle(id); return; }
     const url = tab.url ? publicPdfUrl(tab.url) : null;
-    if (!url) return;
+    if (!url) { trace(tab, source, 'no-usable-url'); return; }
     const grant: PdfAuthorization = { tabId: id, url, token: crypto.randomUUID(), at: Date.now() };
     generations.set(id, (generations.get(id) ?? 0) + 1); grants.set(id, grant);
     void chrome.storage.session.set({ [key(id)]: grant });
     // setOptions must not be awaited: open() has to stay in the user-gesture turn.
     void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true });
-    void chrome.sidePanel.open({ tabId: id }).catch(() => {});
+    const opening = Promise.resolve(chrome.sidePanel.open({ tabId: id }));
+    if (commandTraceEnabled) {
+      trace(tab, source, 'open-called');
+      void opening.then(() => trace(tab, source, 'open-ok'), (e) => trace(tab, source, 'open-failed', String((e as Error)?.message ?? e)));
+    } else {
+      void opening.catch(() => {});
+    }
     void chrome.runtime.sendMessage({ type: 'rp-pdf-selected' }).catch(() => {});
   };
-  chrome.action.onClicked.addListener(activate);
-  chrome.commands.onCommand.addListener((cmd, tab) => { if (cmd === TOGGLE_COMMAND) activate(tab); });
+  chrome.action.onClicked.addListener((tab) => activate(tab, 'action'));
+  chrome.commands.onCommand.addListener((cmd, tab) => { if (cmd === TOGGLE_COMMAND) activate(tab, 'command'); });
 
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
