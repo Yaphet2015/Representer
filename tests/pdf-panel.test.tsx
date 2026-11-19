@@ -31,7 +31,7 @@ beforeEach(() => {
   setStorage = vi.fn(() => { throw new Error('must not write settings/cache'); });
   connect = vi.fn((info?: { name?: string }) => {
     if (info?.name === 'pdf-visual') return { name: 'pdf-visual', postMessage: vi.fn(), disconnect: vi.fn(), onMessage: noListeners(), onDisconnect: noListeners() };
-    throw new Error('must not call model unless user chooses Summarize/Send');
+    throw new Error('must not call the model when a cached overview is used');
   });
   rpc = vi.fn(async (msg) => {
     if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
@@ -51,15 +51,16 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); vi.unstubAllGlobals(); });
-const settle = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
+const settle = async () => { await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); }); };
 const clickText = async (text: string) => { const b = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes(text)); expect(b).toBeTruthy(); await act(async () => b!.click()); await settle(); };
 
-describe('PDF sidebar interaction (no model or storage writes)', () => {
-  it('does not download on open, reads only on click, restores cache and shows the exact page for repeated source text', async () => {
+describe('PDF sidebar interaction (no panel-local storage writes)', () => {
+  it('reads and restores a cached overview on open, and shows the exact page for repeated source text', async () => {
     await act(async () => root.render(<PdfPanel />)); await settle();
-    expect(read).not.toHaveBeenCalled(); expect(connect).not.toHaveBeenCalled();
-    await clickText('Read PDF locally'); expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('2 pages'); expect(host.textContent).toContain('Synthetic summary');
+    expect(host.textContent).not.toContain('Read PDF locally');
+    expect(host.textContent).not.toContain('Summarize with my model');
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'getCached', url: 'pdf:v1:https://files.example.org/doc' }));
     expect(connect).toHaveBeenCalledWith({ name: 'pdf-visual' });
     expect(host.textContent).toContain('inspect rendered page images');
@@ -72,26 +73,28 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
     expect(img).toBeTruthy();
     expect(img?.getAttribute('src')).toMatch(/^(blob:|data:)/);
     expect(setStorage).not.toHaveBeenCalled(); expect(connect.mock.calls.every((c) => c[0]?.name === "pdf-visual")).toBe(true);
+    await act(async () => root.render(<PdfPanel />)); await settle();
+    expect(read).toHaveBeenCalledTimes(1);
   });
   it('invalidates extracted text on a navigation and does not automatically re-download', async () => {
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await act(async () => root.render(<PdfPanel />)); await settle();
     active = false; await act(async () => changed?.(8, { url: 'https://other.example.org/other' })); await settle();
     expect(host.textContent).not.toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1); expect(connect.mock.calls.every((c) => c[0]?.name === 'pdf-visual')).toBe(true);
   });
   it('does not drop a completed read on a same-document loading or hash-only update', async () => {
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await act(async () => root.render(<PdfPanel />)); await settle();
     await act(async () => changed?.(8, { status: 'loading' })); await settle();
     await act(async () => changed?.(8, { url: 'https://files.example.org/doc#page=2' })); await settle();
     expect(host.textContent).toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: PDF_CONTEXT, tabId: 8 }));
   });
   it('does not discard the reader or restart extraction when another tab loads', async () => {
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await act(async () => root.render(<PdfPanel />)); await settle();
     await act(async () => changed?.(9, { status: 'loading' })); await settle();
     expect(host.textContent).toContain('Synthetic summary'); expect(read).toHaveBeenCalledTimes(1);
   });
   it('does not drop extracted text or show the idle sidebar when an ordinary tab becomes active', async () => {
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
+    await act(async () => root.render(<PdfPanel />)); await settle();
     rpc.mockImplementation(async (msg) => {
       if (msg.type === PDF_CONTEXT) return { kind: 'none' };
       if (msg.type === 'getCached') return { ok: true, cached: { summary } };
@@ -126,8 +129,7 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
       }
       throw new Error('unexpected port ' + info?.name);
     });
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
-    await clickText('Summarize with my model');
+    await act(async () => root.render(<PdfPanel />)); await settle();
     expect(host.textContent).toContain('Synthetic summary');
     expect(host.textContent).toContain('1 of 59');
     expect(host.textContent).toContain('not a full visual reading');
@@ -154,12 +156,57 @@ describe('PDF sidebar interaction (no model or storage writes)', () => {
       }
       throw new Error('unexpected port ' + info?.name);
     });
-    await act(async () => root.render(<PdfPanel />)); await settle(); await clickText('Read PDF locally');
-    await clickText('Summarize with my model');
-    const alert = host.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('did not accept page images');
-    expect(alert?.textContent).toContain('A text-only fallback was not used');
-    expect(alert?.textContent).toContain('Choose a vision-capable');
+    await act(async () => root.render(<PdfPanel />)); await settle();
+    expect(host.textContent).toContain('did not accept page images');
+    expect(host.textContent).toContain('A text-only fallback was not used');
+    expect(host.textContent).toContain('Choose a vision-capable');
     expect(host.textContent).not.toContain('Synthetic summary');
+  });
+  it('starts a model overview on open when there is no cache, and does not auto-retry a failure', async () => {
+    rpc.mockImplementation(async (msg) => {
+      if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
+      if (msg.type === 'getCached') return { ok: true };
+      if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
+      return { ok: false };
+    });
+    let summaries = 0;
+    const listeners: Array<(e: unknown) => void> = [];
+    connect.mockImplementation((info?: { name?: string }) => {
+      if (info?.name === 'pdf-visual') return { name: 'pdf-visual', postMessage: vi.fn(), disconnect: vi.fn(), onMessage: noListeners(), onDisconnect: noListeners() };
+      if (info?.name === SUMMARY_PORT) {
+        summaries += 1;
+        return {
+          name: SUMMARY_PORT,
+          postMessage: vi.fn(() => { queueMicrotask(() => listeners.forEach((f) => f({ error: 'No API key yet. Add one in Settings first.' }))); }),
+          disconnect: vi.fn(),
+          onMessage: { addListener: (f: (e: unknown) => void) => { listeners.push(f); }, removeListener: vi.fn() },
+          onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() },
+        };
+      }
+      throw new Error('unexpected port ' + info?.name);
+    });
+    await act(async () => root.render(<PdfPanel />)); await settle();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(summaries).toBe(1);
+    expect(host.textContent).toContain('No API key yet');
+    await settle();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(summaries).toBe(1);
+    const retry = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Retry');
+    expect(retry).toBeTruthy();
+  });
+  it('cancel during a local read leaves a start-summary action and does not call the model', async () => {
+    rpc.mockImplementation(async (msg) => {
+      if (msg.type === PDF_CONTEXT) return active ? { kind: 'pdf', grant } : { kind: 'none' };
+      if (msg.type === 'getCached') return { ok: true };
+      if (msg.type === 'rp-pdf-visual-open' || msg.type === 'rp-pdf-visual-close') return { ok: true };
+      return { ok: false };
+    });
+    read.mockImplementation(() => new Promise(() => {}));
+    await act(async () => root.render(<PdfPanel />)); await settle();
+    expect(read).toHaveBeenCalledTimes(1);
+    await clickText('Cancel');
+    expect(host.querySelector('[data-no-overview]')).toBeTruthy();
+    expect(connect.mock.calls.every((c) => c[0]?.name !== SUMMARY_PORT)).toBe(true);
   });
 });

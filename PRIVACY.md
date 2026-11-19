@@ -8,14 +8,14 @@ Representer 是一个开源 Chrome 扩展，用于对你正在浏览的网页或
 
 ### 处理哪些数据
 - **网页内容**：只有在你主动打开 Representer 浮层（快捷键或工具栏图标）时，Representer 才会提取当前网页的标题、网址和正文。如果你使用 Skill 的 `{{selection}}` 占位符，还会用到你在页面上选中的文字。
-- **PDF 内容**：只有在你于 PDF 标签页点击工具栏并选择本地读取或总结时，才会处理该文档。读取本身在本地完成，不会调用模型。若你接着选择用模型总结或对话，会把提取的文本层和页面目录发送到你配置的 API；在模型支持视觉时，还可以按需发送部分页面的渲染图（可选，单次运行有页数上限，不会一次打包全部页面）。若模型不接受图片，请求会明确失败，不会静默改走纯文本。
+- **PDF 内容**：只有在你于 PDF 标签页点击工具栏或使用同一快捷键打开侧栏时，才会处理该已授权文档（不会在后台扫描其他 PDF）。打开侧栏后会在本地读取该文档，并像普通网页浮层一样用你配置的模型自动生成 Overview。提取的文本层和页面目录会发送到你配置的 API；在模型支持视觉时，还可以按需发送部分页面的渲染图（可选，单次运行有页数上限，不会一次打包全部页面）。若模型不接受图片，请求会明确失败，不会静默改走纯文本。你可以取消或重试。
 - **你输入的内容**：对话消息和 Skill 提示词。
 - **设置**：你填写的 API Base URL、API Key、模型名称，以及 Skills、浮层宽度等偏好。
 
 ### 数据发送到哪里
-- Representer 采用 **BYOK（自带密钥）** 模式。生成总结或回答时，上述网页内容、你选择发送的 PDF 文本（以及你允许的按需页面渲染图）和对话内容**只会直接发送到你在设置页配置的 API 地址**（例如 OpenAI、OpenRouter 或你本机的 Ollama），并附带你的 API Key 用于鉴权。
+- Representer 采用 **BYOK（自带密钥）** 模式。生成总结或回答时，上述网页内容、打开已授权 PDF 侧栏后提取的文本（以及按需页面渲染图）和对话内容**只会直接发送到你在设置页配置的 API 地址**（例如 OpenAI、OpenRouter 或你本机的 Ollama），并附带你的 API Key 用于鉴权。
 - 这些数据由你选择的服务商按其隐私政策处理。Representer 的开发者无法访问这些请求。
-- 未填写 API Key 时，不会发出任何网络请求。
+- 未填写 API Key 时，不会向你配置的模型接口发出请求。打开已授权的 PDF 侧栏仍会在本地抓取该公开文档（不携带登录凭据、不跟随重定向）。
 - Representer 不包含任何统计、分析、广告或追踪代码，也不会加载远程代码。
 
 ### 本地存储
@@ -36,13 +36,13 @@ Representer is an open-source Chrome extension that creates AI summaries, mind-m
 
 ### Data processed
 - **Page content**: only when you open the Representer overlay (keyboard shortcut or toolbar icon), Representer reads the current page's title, URL and main text, plus your selected text if a Skill uses the `{{selection}}` placeholder.
-- **PDF content**: only when you click the toolbar on a PDF tab and choose to read or summarize it. Reading happens locally and does not call a model. If you then choose to summarize or chat with your model, the extracted text layer and page catalog are sent to your configured API; when the model accepts images, rendered page images may also be sent on demand (optional, with a per-run page cap; pages are not all packed into one request). If the model does not accept images, the request fails clearly; there is no silent text-only fallback.
+- **PDF content**: only when you open the side panel on a PDF tab (toolbar or the same shortcut; other PDFs are not scanned in the background). The sidebar then reads that authorized document locally and starts an Overview with your configured model, like the webpage overlay. The extracted text layer and page catalog are sent to your configured API; when the model accepts images, rendered page images may also be sent on demand (optional, with a per-run page cap; pages are not all packed into one request). If the model does not accept images, the request fails clearly; there is no silent text-only fallback. You can cancel or retry.
 - **Your input**: chat messages and Skill prompts.
 - **Settings**: the API base URL, API key and model you enter, plus Skills and UI preferences.
 
 ### Where data goes
-- Representer is **BYOK (bring your own key)**. To generate a summary or answer, page content, any PDF text you choose to send (and on-demand rendered page images, when you allow them) and chat messages are sent **only, and directly, to the API endpoint you configure** (e.g. OpenAI, OpenRouter, or a local Ollama server), together with your API key for authentication. That provider processes the data under its own privacy policy; Representer's developers have no access to these requests.
-- When no API key is set, no network requests are made.
+- Representer is **BYOK (bring your own key)**. To generate a summary or answer, page content, PDF text extracted after you open an authorized sidebar (and on-demand rendered page images) and chat messages are sent **only, and directly, to the API endpoint you configure** (e.g. OpenAI, OpenRouter, or a local Ollama server), together with your API key for authentication. That provider processes the data under its own privacy policy; Representer's developers have no access to these requests.
+- When no API key is set, no requests are made to your configured model API. Opening an authorized PDF sidebar still fetches that public document locally (credentials omitted, redirects refused).
 - Representer contains no analytics, advertising or tracking code and does not load remote code.
 
 ### Local storage
