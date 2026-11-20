@@ -1,4 +1,4 @@
-import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
+import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, samePublicDocument, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
 import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
 import { createPdfVisualSession } from './pdf-visual';
@@ -17,18 +17,39 @@ function fromPanel(sender: chrome.runtime.MessageSender): boolean {
 
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
 export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
-  const documents = new Map<number, { url: string; kind: 'html' | 'pdf' }>();
+  type DocumentKind = { url: string; kind: 'html' | 'pdf' };
+  const documents = new Map<number, DocumentKind>();
   const grants = new Map<number, PdfAuthorization>();
   const generations = new Map<number, number>();
   const key = (id: number) => `pdf-authorization:${id}`;
+  const documentKey = (id: number) => `pdf-document:${id}`;
+  const isDocumentKind = (v: unknown): v is DocumentKind & { tabId: number } =>
+    !!v && typeof v === 'object' && 'tabId' in v && Number.isInteger(v.tabId)
+    && 'url' in v && typeof v.url === 'string'
+    && 'kind' in v && (v.kind === 'html' || v.kind === 'pdf');
   // Session storage survives service-worker suspension, not a browser restart. No PDF bytes/text or settings here.
   const disablePanel = (id: number) => {
     void chrome.sidePanel.setOptions({ tabId: id, enabled: false });
-    if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: id }).catch(() => {});
+    if (!chrome.sidePanel.close) return;
+    // Official close() is Chrome 141+. tabId closes a tab-specific panel; from 145, close({ tabId })
+    // rejects if only the global default_path panel is open, in which case windowId is the documented fallback.
+    void chrome.sidePanel.close({ tabId: id }).catch(() => {
+      void chrome.tabs.get(id).then((t) => {
+        if (t.windowId !== undefined) return chrome.sidePanel.close({ windowId: t.windowId });
+      }).catch(() => {});
+    });
+  };
+  const remember = (id: number, rec: DocumentKind) => {
+    documents.set(id, rec);
+    void chrome.storage.session.set({ [documentKey(id)]: { tabId: id, url: rec.url, kind: rec.kind } });
+  };
+  const dropDocument = (id: number) => {
+    documents.delete(id);
+    void chrome.storage.session.remove(documentKey(id));
   };
   const forget = (id: number) => {
     const url = grants.get(id)?.url;
-    documents.delete(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
+    dropDocument(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
     void chrome.storage.session.remove(key(id));
     disablePanel(id);
     if (url) void closeVisualSession(pdfCacheUrl(url));
@@ -53,7 +74,10 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
   // Re-hydrate in-memory grants after a worker restart so visual sessions can use the same token.
   void chrome.storage.session.get(null).then((all) => {
-    for (const v of Object.values(all ?? {})) if (isPdfAuthorization(v) && !grants.has(v.tabId)) adopt(v);
+    for (const v of Object.values(all ?? {})) {
+      if (isPdfAuthorization(v) && !grants.has(v.tabId)) adopt(v);
+      if (isDocumentKind(v) && !documents.has(v.tabId)) documents.set(v.tabId, { url: v.url, kind: v.kind });
+    }
   });
 
   chrome.tabs.onRemoved.addListener(forget);
@@ -61,6 +85,13 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   // navigation: Chrome's PDF viewer (and hash-only updates) emit it without a new document, and
   // forgetting here is what made every Read fail after the first context() succeeded.
   chrome.tabs.onUpdated.addListener((id, info) => {
+    const known = documents.get(id);
+    if (info.url && known && !samePublicDocument(known.url, info.url)) {
+      // A real document load reports status loading. Hash-only and same-document viewer URLs
+      // keep the cached kind. History URL changes keep the kind and record the new URL (SPA).
+      if (info.status === 'loading') dropDocument(id);
+      else remember(id, { url: info.url, kind: known.kind });
+    }
     const grant = grants.get(id);
     if (!grant || !info.url) return;
     const next = publicPdfUrl(info.url);
@@ -78,7 +109,9 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   const activate = (tab?: { id?: number; url?: string }) => {
     if (tab?.id === undefined) return;
     const id = tab.id, known = documents.get(id);
-    if (known?.kind === 'html' && known.url === tab.url) { void toggle(id); return; }
+    // Kind is per tab: hash differences and same-tab history changes must not fall through
+    // to the PDF classification sidebar. Real navigations clear the cache above.
+    if (known?.kind === 'html') { disablePanel(id); void toggle(id); return; }
     const url = tab.url ? publicPdfUrl(tab.url) : null;
     if (!url) return;
     const grant: PdfAuthorization = { tabId: id, url, token: crypto.randomUUID(), at: Date.now() };
@@ -95,7 +128,9 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
     if (msg.type === PDF_DOCUMENT && sender.frameId === 0 && sender.tab?.id !== undefined && sender.url && 'kind' in msg && (msg.kind === 'html' || msg.kind === 'pdf')) {
-      documents.set(sender.tab.id, { url: sender.url, kind: msg.kind }); return false;
+      remember(sender.tab.id, { url: sender.url, kind: msg.kind });
+      if (msg.kind === 'html') disablePanel(sender.tab.id);
+      return false;
     }
     if (msg.type !== PDF_CONTEXT || !fromPanel(sender)) return false;
     const requested = 'tabId' in msg && typeof msg.tabId === 'number' && Number.isInteger(msg.tabId) ? msg.tabId : undefined;
@@ -118,10 +153,11 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
       } catch { return { kind: 'none' }; }
       if (receiver && !(doc && typeof doc === 'object' && 'kind' in doc && doc.kind === 'pdf')) {
         forget(requested);
-        documents.set(requested, { url: tab.url, kind: 'html' });
+        remember(requested, { url: tab.url, kind: 'html' });
+        // Re-assert the global default is off in case open() raced ahead of tab-specific options
+        // and enabled the manifest default_path panel.
+        void chrome.sidePanel.setOptions({ enabled: false });
         await toggle(requested);
-        // Chrome 141+ can close a temporary classification sidebar. On 116–140 show a close instruction.
-        if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: requested }).catch(() => {});
         return { kind: 'web' };
       }
       return { kind: 'pdf', grant: { tabId: grant.tabId, url: grant.url, token: grant.token } };

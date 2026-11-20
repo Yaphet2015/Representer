@@ -197,3 +197,84 @@ describe('shared keyboard shortcut routing', () => {
     finish();
   });
 });
+
+describe('ordinary webpages use only the in-page overlay', () => {
+  it('keeps the command on the overlay when the tab URL differs from the announcement only by a hash', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    command.fire(TOGGLE_COMMAND, { id: 8, url: `${tab.url}#section` });
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+  it('keeps the toolbar on the overlay when the announcement URL carries a hash the tab URL does not', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: `${tab.url}#top` }, () => {});
+    action.fire(tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('keeps the command on the overlay after a same-tab history URL change on a known HTML document', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    const next = 'https://files.example.org/article';
+    tabs[8] = { id: 8, url: next };
+    updated.fire(8, { url: next });
+    command.fire(TOGGLE_COMMAND, { id: 8, url: next });
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+  });
+  it('does not open a sidebar when a previously announced HTML tab is used after a worker restart', async () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    action.clear(); messages.clear(); updated.clear(); removed.clear(); command.clear(); connect.clear();
+    setOptions.mockClear(); open.mockClear();
+    (toggle as ReturnType<typeof vi.fn>).mockClear();
+    installPdfEntry(async (id) => { await toggle(id); });
+    await flush();
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('on an unknown public page that pings as HTML, disables and closes the classification sidebar and hands back to the overlay', async () => {
+    send.mockResolvedValue({ kind: 'html' });
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect((await ctx()).kind).toBe('web');
+    expect(toggle).toHaveBeenCalledWith(8);
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, enabled: false });
+    expect(close).toHaveBeenCalledWith({ tabId: 8 });
+  });
+  it('after a real navigation away from a PDF, a newly announced HTML document only uses the overlay', () => {
+    action.fire(tab);
+    const htmlUrl = 'https://other.example.org/page';
+    tabs[8] = { id: 8, url: htmlUrl };
+    updated.fire(8, { status: 'loading', url: htmlUrl });
+    setOptions.mockClear(); open.mockClear();
+    (toggle as ReturnType<typeof vi.fn>).mockClear();
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: htmlUrl }, () => {});
+    command.fire(TOGGLE_COMMAND, { id: 8, url: htmlUrl });
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('disables a leftover tab panel when the tab finishes a navigation as HTML', () => {
+    action.fire(tab);
+    const htmlUrl = 'https://other.example.org/page';
+    tabs[8] = { id: 8, url: htmlUrl };
+    updated.fire(8, { status: 'loading', url: htmlUrl });
+    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, enabled: false });
+    setOptions.mockClear(); open.mockClear();
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: htmlUrl }, () => {});
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+    command.fire(TOGGLE_COMMAND, { id: 8, url: htmlUrl });
+    expect(open).not.toHaveBeenCalled();
+  });
+  it('still opens only the sidebar for a public PDF URL with no suffix, including after a hash-only HTML announcement would have mismatched', () => {
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(toggle).not.toHaveBeenCalled();
+  });
+  it('keeps an in-page application/pdf document on the sidebar and does not open the overlay', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'pdf' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    command.fire(TOGGLE_COMMAND, { id: 8, url: `${tab.url}#page=2` });
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(toggle).not.toHaveBeenCalled();
+  });
+});

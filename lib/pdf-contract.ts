@@ -27,6 +27,13 @@ export function publicPdfUrl(raw: string): string | null {
     u.hash = ''; return u.href;
   } catch { return null; }
 }
+/** True when both strings name the same public HTTP(S) document, ignoring hashes. */
+export function samePublicDocument(a: string, b: string): boolean {
+  const left = publicPdfUrl(a);
+  const right = publicPdfUrl(b);
+  if (left && right) return left === right;
+  return a === b;
+}
 export function isPdfAuthorization(v: unknown): v is PdfAuthorization {
   return isPdfContext({ kind: 'pdf', grant: v }) && !!v && typeof v === 'object' && 'at' in v && typeof v.at === 'number' && Number.isFinite(v.at);
 }

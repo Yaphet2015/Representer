@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PDF_MAX_BYTES, PDF_MAX_CHARS, PDF_MAX_PAGES, PDF_WORD_SPACE_EM, formatPdfPageCatalog, joinPdfTextItems, pageNeedsVisualInspection, pdfTextDocument, readPdfBytes, type PdfGlyphRun } from '../lib/pdf-text';
 import { chunkContent } from '../lib/chunked-overview';
 import { OVERVIEW_INLINE_MAX } from '../lib/overview-agent';
-import { pdfCacheUrl, publicPdfUrl } from '../lib/pdf-contract';
+import { pdfCacheUrl, publicPdfUrl, samePublicDocument } from '../lib/pdf-contract';
 const pdf = (body: BodyInit | null, headers: Record<string, string> = {}) => new Response(body, { headers: { 'Content-Type': 'application/pdf', ...headers } });
 
 describe('PDF document boundaries and source pages', () => {
@@ -79,6 +79,10 @@ describe('bounded PDF response download', () => {
 describe('user-selected HTTP(S) PDF URL policy', () => {
   it('does not need a filename suffix and strips native viewer page fragments', () => {
     expect(publicPdfUrl('https://investor.lilly.com/static-files/4580c401-611c-406b-8964-88cb8d887bd4#page=2')).toBe('https://investor.lilly.com/static-files/4580c401-611c-406b-8964-88cb8d887bd4');
+  });
+  it('treats hash-only differences as the same public document', () => {
+    expect(samePublicDocument('https://files.example.org/no-extension', 'https://files.example.org/no-extension#section')).toBe(true);
+    expect(samePublicDocument('https://files.example.org/a', 'https://files.example.org/b')).toBe(false);
   });
   it('rejects local/private URLs, alternate numeric IP spellings, credentials and other schemes', () => {
     for (const u of ['file:///a.pdf', 'chrome://settings', 'http://localhost/a', 'http://x.local/a', 'http://10.0.0.1/a', 'http://127.1/a', 'http://2130706433/a', 'http://0x7f000001/a', 'http://172.31.1.1/a', 'http://192.168.2.3/a', 'http://169.254.169.254/a', 'http://[::1]/a', 'https://u:p@site.com/a']) expect(publicPdfUrl(u), u).toBeNull();
