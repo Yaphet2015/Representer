@@ -9,18 +9,55 @@ let action: ReturnType<typeof event>, command: ReturnType<typeof event>, message
 let open: ReturnType<typeof vi.fn>, send: ReturnType<typeof vi.fn>, setOptions: ReturnType<typeof vi.fn>, setPanelBehavior: ReturnType<typeof vi.fn>, close: ReturnType<typeof vi.fn>, disconnect: ReturnType<typeof vi.fn>;
 let toggle: (id?: number) => Promise<void>;
 let session: Record<string, unknown>;
-let tabs: Record<number, { id: number; url: string }>;
-let tab: { id: number; url: string };
+let tabs: Record<number, { id: number; url: string; status?: string }>;
+let tab: { id: number; url: string; status?: string };
+let reply: (tabId: number, msg: unknown) => unknown;
+function setReply(fn: (tabId: number, msg: unknown) => unknown) { reply = fn; }
+function noReceiver(): never { throw new Error('No receiver'); }
+function bindSend() {
+  send = vi.fn((tabId: number, msg: unknown, opts?: unknown, cb?: unknown) => {
+    const callback = typeof opts === 'function' ? opts : typeof cb === 'function' ? cb : undefined;
+    const deliver = (err: unknown, value?: unknown) => {
+      const runtime = (globalThis as { chrome: { runtime: { lastError?: { message: string } } } }).chrome.runtime;
+      if (callback) {
+        if (err) {
+          runtime.lastError = { message: String((err as { message?: string }).message ?? err) };
+          callback(undefined);
+          runtime.lastError = undefined;
+        } else {
+          runtime.lastError = undefined;
+          callback(value);
+        }
+        return;
+      }
+      return err ? Promise.reject(err) : Promise.resolve(value);
+    };
+    try {
+      const out = reply(tabId, msg);
+      if (out && typeof out === 'object' && 'then' in out) {
+        const p = out as Promise<unknown>;
+        if (callback) { p.then((v) => deliver(null, v), (e) => deliver(e)); return; }
+        return p;
+      }
+      return deliver(null, out);
+    } catch (e) {
+      return deliver(e);
+    }
+  });
+  return send;
+}
 beforeEach(() => {
   session = {};
   action = event(); command = event(); messages = event(); updated = event(); removed = event(); connect = event();
-  tab = { id: 8, url: 'https://files.example.org/no-extension' };
+  tab = { id: 8, url: 'https://files.example.org/no-extension', status: 'complete' };
   tabs = { 8: tab };
   open = vi.fn(async () => {}); setOptions = vi.fn(async () => {}); setPanelBehavior = vi.fn(async () => {}); close = vi.fn(async () => {});
   disconnect = vi.fn();
-  toggle = vi.fn(async () => {}); send = vi.fn(async () => { throw new Error('No receiver'); });
+  toggle = vi.fn(async () => {});
+  setReply(noReceiver);
+  bindSend();
   vi.stubGlobal('chrome', {
-    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: connect, sendMessage: vi.fn(async () => {}) },
+    runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: connect, sendMessage: vi.fn(async () => {}), lastError: undefined },
     storage: { session: {
       get: async (k: string | null) => (k == null ? { ...session } : { [k]: session[k] }),
       set: async (v: Record<string, unknown>) => { Object.assign(session, v); },
@@ -45,8 +82,9 @@ const ctx = (sender = panel, tabId = 8) => new Promise<any>((resolve) => {
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
 describe('toolbar routing and PDF user-action capability', () => {
-  it('opens a side panel in the original action call stack, without a URL fetch, for a native PDF with no suffix', async () => {
-    action.fire(tab); expect(open).toHaveBeenCalledWith({ tabId: 8 }); expect(send).not.toHaveBeenCalled();
+  it('opens a side panel for a native PDF with no suffix after a no-receiver ping, without a URL fetch', async () => {
+    action.fire(tab); expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(send).toHaveBeenCalled();
     expect(setOptions).toHaveBeenCalledWith({ tabId: 8, path: 'pdf-panel.html?tab=8', enabled: true });
     const c = await ctx(); expect(c.kind).toBe('pdf'); expect(c.grant.url).toBe(tab.url); expect(c.grant.token).toBeTruthy();
   });
@@ -55,17 +93,18 @@ describe('toolbar routing and PDF user-action capability', () => {
     action.fire(tab); expect(open).not.toHaveBeenCalled(); expect(toggle).toHaveBeenCalledWith(8);
   });
   it('keeps an HTML application/pdf viewer on the PDF sidebar path after a ping', async () => {
-    send.mockResolvedValue({ kind: 'pdf' });
+    setReply(() => ({ kind: 'pdf' }));
     messages.fire({ type: PDF_DOCUMENT, kind: 'pdf' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
     action.fire(tab);
     expect(open).toHaveBeenCalledWith({ tabId: 8 });
     expect((await ctx()).kind).toBe('pdf');
     expect(toggle).not.toHaveBeenCalled();
   });
-  it('after a worker restart, identifies an ordinary page without fetching it and hands back to the overlay', async () => {
-    send.mockResolvedValue({ kind: 'html' }); action.fire(tab);
-    expect((await ctx()).kind).toBe('web'); expect(toggle).toHaveBeenCalledWith(8);
-    action.fire(tab); expect(open).toHaveBeenCalledTimes(1); // now known; no second classification sidebar
+  it('classifies a loaded HTML page via ping and uses only the overlay, even with no cached kind', () => {
+    setReply(() => ({ kind: 'html' }));
+    action.fire(tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
   });
   it('will not grant access to a page that was not clicked, or to content-script senders', async () => {
     expect((await ctx()).kind).toBe('none'); action.fire(tab);
@@ -82,7 +121,7 @@ describe('toolbar routing and PDF user-action capability', () => {
     expect((await ctx()).kind).toBe('pdf');
     action.fire(tab); removed.fire(8); expect((await ctx()).kind).toBe('none');
     action.fire(tab);
-    send.mockImplementation(async () => { updated.fire(8, { url: 'https://other.example.org/' }); tabs[8] = { id: 8, url: 'https://other.example.org/' }; return { kind: 'pdf' }; });
+    setReply(async () => { updated.fire(8, { url: 'https://other.example.org/' }); tabs[8] = { id: 8, url: 'https://other.example.org/' }; return { kind: 'pdf' }; });
     expect((await ctx()).kind).toBe('none');
   });
   it('does not drop a grant when the PDF viewer reports its own chrome-extension URL but the tab is still the document', async () => {
@@ -233,14 +272,12 @@ describe('ordinary webpages use only the in-page overlay', () => {
     expect(open).not.toHaveBeenCalled();
     expect(toggle).toHaveBeenCalledWith(8);
   });
-  it('on an unknown public page that pings as HTML, disables and closes the classification sidebar and hands back to the overlay', async () => {
-    send.mockResolvedValue({ kind: 'html' });
+  it('on an unknown public page that pings as HTML, toggles only the overlay and does not open a sidebar', () => {
+    setReply(() => ({ kind: 'html' }));
     command.fire(TOGGLE_COMMAND, tab);
-    expect(open).toHaveBeenCalledWith({ tabId: 8 });
-    expect((await ctx()).kind).toBe('web');
+    expect(open).not.toHaveBeenCalled();
     expect(toggle).toHaveBeenCalledWith(8);
-    expect(setOptions).toHaveBeenCalledWith({ tabId: 8, enabled: false });
-    expect(close).toHaveBeenCalledWith({ tabId: 8 });
+    expect(setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
   it('after a real navigation away from a PDF, a newly announced HTML document only uses the overlay', () => {
     action.fire(tab);
@@ -276,5 +313,91 @@ describe('ordinary webpages use only the in-page overlay', () => {
     command.fire(TOGGLE_COMMAND, { id: 8, url: `${tab.url}#page=2` });
     expect(open).toHaveBeenCalledWith({ tabId: 8 });
     expect(toggle).not.toHaveBeenCalled();
+  });
+  it('classifies HTML on the first command of a cold worker without waiting for session hydrate', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    action.clear(); messages.clear(); updated.clear(); removed.clear(); command.clear(); connect.clear();
+    setOptions.mockClear(); open.mockClear();
+    (toggle as ReturnType<typeof vi.fn>).mockClear();
+    setReply(() => ({ kind: 'html' }));
+    installPdfEntry(async (id) => { await toggle(id); });
+    // Intentionally no flush: hydrate is still pending. Classification uses the ping callback.
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).toHaveBeenCalledWith(8);
+  });
+  it('does not open a PDF sidebar while the tab is still loading, even for a public URL with no cached kind', () => {
+    command.fire(TOGGLE_COMMAND, { ...tab, status: 'loading' });
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+  it('drops HTML kind on a same-URL reload and opens the sidebar once a native PDF has finished loading, without revoking a same-URL grant', async () => {
+    action.fire(tab);
+    const token = (await ctx()).grant.token;
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    updated.fire(8, { status: 'loading', url: tab.url });
+    expect((await ctx()).kind).toBe('pdf');
+    expect((await ctx()).grant.token).toBe(token);
+    setOptions.mockClear(); open.mockClear();
+    (toggle as ReturnType<typeof vi.fn>).mockClear();
+    command.fire(TOGGLE_COMMAND, { ...tab, status: 'loading' });
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).not.toHaveBeenCalled();
+    setReply(noReceiver);
+    command.fire(TOGGLE_COMMAND, { ...tab, status: 'complete' });
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(toggle).not.toHaveBeenCalled();
+  });
+  it('opens the sidebar in the sendMessage callback turn, not before the callback and not after a later microtask', () => {
+    let resume: ((doc?: unknown) => void) | undefined;
+    send.mockImplementation((tabId: number, msg: unknown, opts?: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : typeof cb === 'function' ? cb : undefined;
+      if (callback) resume = (doc?: unknown) => callback(doc);
+    });
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(open).not.toHaveBeenCalled();
+    expect(toggle).not.toHaveBeenCalled();
+    const runtime = (globalThis as { chrome: { runtime: { lastError?: { message: string } } } }).chrome.runtime;
+    runtime.lastError = { message: 'No receiver' };
+    resume?.();
+    runtime.lastError = undefined;
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
+    expect(setOptions.mock.invocationCallOrder[setOptions.mock.calls.findIndex((c) => c[0] && typeof c[0] === 'object' && 'tabId' in c[0] && c[0].enabled === true)]!).toBeLessThan(open.mock.invocationCallOrder[0]!);
+    expect(toggle).not.toHaveBeenCalled();
+  });
+  it('consumes a context grant once so two concurrent HTML classifications cannot both toggle the overlay', async () => {
+    action.fire(tab);
+    const pending: Array<() => void> = [];
+    chrome.tabs.get = ((id: number) => new Promise((resolve, reject) => {
+      const t = tabs[id];
+      if (!t) { reject(new Error('no tab')); return; }
+      pending.push(() => resolve(t as chrome.tabs.Tab));
+    })) as typeof chrome.tabs.get;
+    setReply(() => ({ kind: 'html' }));
+    const first = ctx();
+    const second = ctx();
+    await flush();
+    expect(pending.length).toBe(2);
+    const wave1 = pending.splice(0, pending.length);
+    wave1.forEach((fn) => fn());
+    await flush();
+    expect(pending.length).toBe(2);
+    const wave2 = pending.splice(0, pending.length);
+    wave2.forEach((fn) => fn());
+    const results = await Promise.all([first, second]);
+    expect(results.filter((r) => r.kind === 'web')).toHaveLength(1);
+    expect(results.filter((r) => r.kind === 'none')).toHaveLength(1);
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('after a same-URL reload from announced HTML to a native PDF, the command opens the sidebar instead of a dead overlay', () => {
+    messages.fire({ type: PDF_DOCUMENT, kind: 'html' }, { frameId: 0, tab: { id: 8 }, url: tab.url }, () => {});
+    updated.fire(8, { status: 'loading', url: tab.url });
+    (toggle as ReturnType<typeof vi.fn>).mockClear();
+    open.mockClear();
+    command.fire(TOGGLE_COMMAND, { ...tab, status: 'complete' });
+    expect(toggle).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith({ tabId: 8 });
   });
 });
