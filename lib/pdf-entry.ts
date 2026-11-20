@@ -1,4 +1,4 @@
-import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
+import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, samePublicDocument, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
 import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
 import { createPdfVisualSession } from './pdf-visual';
@@ -17,20 +17,39 @@ function fromPanel(sender: chrome.runtime.MessageSender): boolean {
 
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
 export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
-  const documents = new Map<number, { url: string; kind: 'html' | 'pdf' }>();
+  type DocumentKind = { url: string; kind: 'html' | 'pdf' };
+  const documents = new Map<number, DocumentKind>();
   const grants = new Map<number, PdfAuthorization>();
   const generations = new Map<number, number>();
   const key = (id: number) => `pdf-authorization:${id}`;
+  const documentKey = (id: number) => `pdf-document:${id}`;
+  const isDocumentKind = (v: unknown): v is DocumentKind & { tabId: number } =>
+    !!v && typeof v === 'object' && 'tabId' in v && Number.isInteger(v.tabId)
+    && 'url' in v && typeof v.url === 'string'
+    && 'kind' in v && (v.kind === 'html' || v.kind === 'pdf');
   // Session storage survives service-worker suspension, not a browser restart. No PDF bytes/text or settings here.
-  const disablePanel = (id: number) => {
+  // HTML announcements only disable this tab's panel. Do not close({ windowId }): that can
+  // affect a global panel, and a background announce is not evidence we opened one.
+  const disableTabPanel = (id: number) => {
     void chrome.sidePanel.setOptions({ tabId: id, enabled: false });
+  };
+  const closeTabPanel = (id: number) => {
+    disableTabPanel(id);
     if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: id }).catch(() => {});
+  };
+  const remember = (id: number, rec: DocumentKind) => {
+    documents.set(id, rec);
+    void chrome.storage.session.set({ [documentKey(id)]: { tabId: id, url: rec.url, kind: rec.kind } });
+  };
+  const dropDocument = (id: number) => {
+    documents.delete(id);
+    void chrome.storage.session.remove(documentKey(id));
   };
   const forget = (id: number) => {
     const url = grants.get(id)?.url;
-    documents.delete(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
+    dropDocument(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
     void chrome.storage.session.remove(key(id));
-    disablePanel(id);
+    closeTabPanel(id);
     if (url) void closeVisualSession(pdfCacheUrl(url));
   };
   const adopt = (grant: PdfAuthorization) => {
@@ -53,7 +72,10 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
   // Re-hydrate in-memory grants after a worker restart so visual sessions can use the same token.
   void chrome.storage.session.get(null).then((all) => {
-    for (const v of Object.values(all ?? {})) if (isPdfAuthorization(v) && !grants.has(v.tabId)) adopt(v);
+    for (const v of Object.values(all ?? {})) {
+      if (isPdfAuthorization(v) && !grants.has(v.tabId)) adopt(v);
+      if (isDocumentKind(v) && !documents.has(v.tabId)) documents.set(v.tabId, { url: v.url, kind: v.kind });
+    }
   });
 
   chrome.tabs.onRemoved.addListener(forget);
@@ -61,6 +83,14 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   // navigation: Chrome's PDF viewer (and hash-only updates) emit it without a new document, and
   // forgetting here is what made every Read fail after the first context() succeeded.
   chrome.tabs.onUpdated.addListener((id, info) => {
+    const known = documents.get(id);
+    // Kind cache follows the document, not the grant. A same-URL reload can become a native
+    // PDF (or the reverse); loading starts a new document, so drop the kind. Do not forget a
+    // grant on loading alone — that older bug is independent of this cache.
+    if (info.status === 'loading') dropDocument(id);
+    else if (info.url && known && !samePublicDocument(known.url, info.url)) {
+      remember(id, { url: info.url, kind: known.kind });
+    }
     const grant = grants.get(id);
     if (!grant || !info.url) return;
     const next = publicPdfUrl(info.url);
@@ -72,22 +102,70 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
     }).catch(() => { if (stillGranted(id, grant, generations.get(id))) forget(id); });
   });
 
-  // Shared toolbar / keyboard path. Must stay synchronous through sidePanel.open(): that method
-  // requires a user gesture (https://developer.chrome.com/docs/extensions/reference/api/sidePanel),
-  // and an `await` before open() drops it. `onCommand` provides the active tab; do not query first.
-  const activate = (tab?: { id?: number; url?: string }) => {
-    if (tab?.id === undefined) return;
-    const id = tab.id, known = documents.get(id);
-    if (known?.kind === 'html' && known.url === tab.url) { void toggle(id); return; }
-    const url = tab.url ? publicPdfUrl(tab.url) : null;
-    if (!url) return;
+  // Open the tab-specific panel in the current turn only after we already know this is a PDF
+  // (cached kind, or a classify callback with no HTML receiver). Do not await here: sidePanel.open()
+  // needs the user-gesture token still active in this turn
+  // (https://developer.chrome.com/docs/extensions/reference/api/sidePanel).
+  const openSidebar = (id: number, url: string) => {
     const grant: PdfAuthorization = { tabId: id, url, token: crypto.randomUUID(), at: Date.now() };
     generations.set(id, (generations.get(id) ?? 0) + 1); grants.set(id, grant);
     void chrome.storage.session.set({ [key(id)]: grant });
-    // setOptions must not be awaited: open() has to stay in the user-gesture turn.
     void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true });
     void chrome.sidePanel.open({ tabId: id }).catch(() => {});
     void chrome.runtime.sendMessage({ type: 'rp-pdf-selected' }).catch(() => {});
+  };
+  // Callback-form tabs.sendMessage, not await. APIRequestHandler captures the interaction token
+  // when the request starts and CreateScopedInteraction around the callback in CompleteRequestImpl;
+  // an `await` continuation can run after that scope ends. Chrome 119 includes this path
+  // (callback overload since 99; sidePanel.open since 116). Unconditional open-then-classify was
+  // the HTML dual-UI root cause and is not used.
+  const classify = (id: number, done: (result: { receiver: false } | { receiver: true; kind: 'html' | 'pdf' | 'other' }) => void) => {
+    let settled = false;
+    const finish = (result: { receiver: false } | { receiver: true; kind: 'html' | 'pdf' | 'other' }) => {
+      if (settled) return;
+      settled = true;
+      done(result);
+    };
+    try {
+      chrome.tabs.sendMessage(id, { type: PDF_PING }, { frameId: 0 }, (doc) => {
+        if (chrome.runtime.lastError) { finish({ receiver: false }); return; }
+        if (doc && typeof doc === 'object' && 'kind' in doc && (doc.kind === 'html' || doc.kind === 'pdf')) {
+          finish({ receiver: true, kind: doc.kind });
+          return;
+        }
+        finish({ receiver: true, kind: 'other' });
+      });
+    } catch {
+      finish({ receiver: false });
+    }
+  };
+  const activate = (tab?: { id?: number; url?: string; status?: string }) => {
+    if (tab?.id === undefined) return;
+    const id = tab.id, known = documents.get(id);
+    if (known?.kind === 'html') { void toggle(id); return; }
+    const url = tab.url ? publicPdfUrl(tab.url) : null;
+    if (!url) return;
+    // A still-loading document is not "a PDF we can open". Do not guess from a public HTTP(S) URL.
+    if (tab.status === 'loading') return;
+    if (known?.kind === 'pdf') { openSidebar(id, url); return; }
+    classify(id, (result) => {
+      if (result.receiver && result.kind === 'html') {
+        remember(id, { url: tab.url ?? url, kind: 'html' });
+        void toggle(id);
+        return;
+      }
+      if (result.receiver && result.kind === 'pdf') {
+        remember(id, { url: tab.url ?? url, kind: 'pdf' });
+        openSidebar(id, url);
+        return;
+      }
+      // Fully loaded (or status omitted by onCommand) with no content-script receiver: native PDF
+      // fallback, including public URLs with no .pdf suffix. A receiver that did not report a kind
+      // is treated as a webpage, not a PDF.
+      if (!result.receiver) { openSidebar(id, url); return; }
+      remember(id, { url: tab.url ?? url, kind: 'html' });
+      void toggle(id);
+    });
   };
   chrome.action.onClicked.addListener(activate);
   chrome.commands.onCommand.addListener((cmd, tab) => { if (cmd === TOGGLE_COMMAND) activate(tab); });
@@ -95,7 +173,9 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
     if (msg.type === PDF_DOCUMENT && sender.frameId === 0 && sender.tab?.id !== undefined && sender.url && 'kind' in msg && (msg.kind === 'html' || msg.kind === 'pdf')) {
-      documents.set(sender.tab.id, { url: sender.url, kind: msg.kind }); return false;
+      remember(sender.tab.id, { url: sender.url, kind: msg.kind });
+      if (msg.kind === 'html') disableTabPanel(sender.tab.id);
+      return false;
     }
     if (msg.type !== PDF_CONTEXT || !fromPanel(sender)) return false;
     const requested = 'tabId' in msg && typeof msg.tabId === 'number' && Number.isInteger(msg.tabId) ? msg.tabId : undefined;
@@ -111,17 +191,18 @@ export function installPdfEntry(toggle: (id?: number) => Promise<void>) {
       if (!tab.url || publicPdfUrl(tab.url) !== grant.url) return { kind: 'none' };
       let doc: unknown; let receiver = false;
       try { doc = await chrome.tabs.sendMessage(requested, { type: PDF_PING }, { frameId: 0 }); receiver = true; } catch { /* native PDF has no receiver */ }
-      if (!stillGranted(requested, grant, generation)) return { kind: 'none' };
       try {
         const current = await chrome.tabs.get(requested);
         if (!current.url || publicPdfUrl(current.url) !== grant.url) return { kind: 'none' };
       } catch { return { kind: 'none' }; }
+      // Re-check and consume after the last await so two in-flight context requests cannot
+      // both toggle the overlay (the 200ms content-script de-dupe is not a grant lock).
+      if (!stillGranted(requested, grant, generation)) return { kind: 'none' };
       if (receiver && !(doc && typeof doc === 'object' && 'kind' in doc && doc.kind === 'pdf')) {
         forget(requested);
-        documents.set(requested, { url: tab.url, kind: 'html' });
+        remember(requested, { url: tab.url, kind: 'html' });
+        void chrome.sidePanel.setOptions({ enabled: false });
         await toggle(requested);
-        // Chrome 141+ can close a temporary classification sidebar. On 116–140 show a close instruction.
-        if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: requested }).catch(() => {});
         return { kind: 'web' };
       }
       return { kind: 'pdf', grant: { tabId: grant.tabId, url: grant.url, token: grant.token } };
