@@ -1,4 +1,4 @@
-import { recordEntryTrace, type EntryErrorCode } from './pdf-entry-trace';
+import { recordEntryTrace, type EntryErrorCode, type EntryTraceReason } from './pdf-entry-trace';
 import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, samePublicDocument, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
 import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
@@ -23,6 +23,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   if (ENTRY_TRACE) recordEntryTrace({ stage: 'entry-install' });
   type DocumentKind = { url: string; kind: 'html' | 'pdf' };
   const documents = new Map<number, DocumentKind>();
+  const inspectedDocuments = ENTRY_TRACE ? new Map<number, string>() : undefined;
   const grants = new Map<number, PdfAuthorization>();
   const generations = new Map<number, number>();
   const navigationVersions = new Map<number, number>();
@@ -38,12 +39,29 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   // Session storage survives service-worker suspension, not a browser restart. No PDF bytes/text or settings here.
   // HTML announcements only disable this tab's panel. Do not close({ windowId }): that can
   // affect a global panel, and a background announce is not evidence we opened one.
-  const disableTabPanel = (id: number) => {
-    void chrome.sidePanel.setOptions({ tabId: id, enabled: false });
+  const disableTabPanel = (id: number, reason: EntryTraceReason) => {
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'disable-request', tabId: id, reason, knownKind: documents.get(id)?.kind, hasGrant: grants.has(id) });
+    const result = chrome.sidePanel.setOptions({ tabId: id, enabled: false });
+    if (ENTRY_TRACE) void result.then(() => recordEntryTrace({ stage: 'disable-resolved', tabId: id, reason }), (error: unknown) => {
+      recordEntryTrace({ stage: 'disable-rejected', tabId: id, reason }); throw error;
+    });
   };
-  const closeTabPanel = (id: number) => {
-    disableTabPanel(id);
-    if (chrome.sidePanel.close) void chrome.sidePanel.close({ tabId: id }).catch(() => {});
+  const closeTabPanel = (id: number, reason: EntryTraceReason) => {
+    disableTabPanel(id, reason);
+    if (chrome.sidePanel.close) {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'close-request', tabId: id, reason });
+      if (ENTRY_TRACE) void chrome.sidePanel.close({ tabId: id }).then(
+        () => recordEntryTrace({ stage: 'close-resolved', tabId: id, reason }),
+        () => recordEntryTrace({ stage: 'close-rejected', tabId: id, reason }));
+      else void chrome.sidePanel.close({ tabId: id }).catch(() => {});
+    }
+  };
+  const disableGlobalPanel = (reason: EntryTraceReason) => {
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'global-disable-request', reason });
+    const result = chrome.sidePanel.setOptions({ enabled: false });
+    if (ENTRY_TRACE) void result.then(() => recordEntryTrace({ stage: 'global-disable-resolved', reason }), (error: unknown) => {
+      recordEntryTrace({ stage: 'global-disable-rejected', reason }); throw error;
+    });
   };
   const remember = (id: number, rec: DocumentKind) => {
     touched.add(id);
@@ -53,14 +71,16 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   const dropDocument = (id: number) => {
     touched.add(id);
     documents.delete(id);
+    inspectedDocuments?.delete(id);
     void chrome.storage.session.remove(documentKey(id));
   };
-  const forget = (id: number) => {
+  const forget = (id: number, reason: EntryTraceReason) => {
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'forget', tabId: id, reason, knownKind: documents.get(id)?.kind, hasGrant: grants.has(id) });
     const url = grants.get(id)?.url;
     navigationVersions.set(id, (navigationVersions.get(id) ?? 0) + 1);
     dropDocument(id); grants.delete(id); generations.set(id, (generations.get(id) ?? 0) + 1);
     void chrome.storage.session.remove(key(id));
-    closeTabPanel(id);
+    closeTabPanel(id, reason);
     if (url) void closeVisualSession(pdfCacheUrl(url));
   };
   const adopt = (grant: PdfAuthorization) => {
@@ -79,7 +99,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     grants.get(id) === grant && generations.get(id) === generation;
 
   // Manifest default_path would otherwise open a global panel that follows ordinary tabs.
-  void chrome.sidePanel.setOptions({ enabled: false });
+  disableGlobalPanel('startup');
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
   // Re-hydrate in-memory grants after a worker restart so visual sessions can use the same token.
   void chrome.storage.session.get(null).then((all) => {
@@ -90,7 +110,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     if (ENTRY_TRACE) recordEntryTrace({ stage: 'hydrate-done' });
   });
 
-  chrome.tabs.onRemoved.addListener(forget);
+  chrome.tabs.onRemoved.addListener((id) => forget(id, 'tab-removed'));
   // Revoke only when this tab leaves the granted document. `status: 'loading'` alone is not a
   // navigation: Chrome's PDF viewer (and hash-only updates) emit it without a new document, and
   // forgetting here is what made every Read fail after the first context() succeeded.
@@ -110,11 +130,11 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     if (!grant || !info.url) return;
     const next = publicPdfUrl(info.url);
     if (next === grant.url) return;
-    if (next) { forget(id); return; }
+    if (next) { forget(id, 'navigation-public'); return; }
     void chrome.tabs.get(id).then((t) => {
       if (!stillGranted(id, grant, generations.get(id))) return;
-      if (!t.url || publicPdfUrl(t.url) !== grant.url) forget(id);
-    }).catch(() => { if (stillGranted(id, grant, generations.get(id))) forget(id); });
+      if (!t.url || publicPdfUrl(t.url) !== grant.url) forget(id, 'navigation-checked');
+    }).catch(() => { if (stillGranted(id, grant, generations.get(id))) forget(id, 'navigation-tab-missing'); });
   });
 
   const clearError = (id: number) => {
@@ -189,7 +209,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       }
       if (!current()) return;
       remember(id, { url, kind: 'html' });
-      disableTabPanel(id);
+      disableTabPanel(id, 'webpage-route');
       await toggle(id, documentId);
       if (current()) clearError(id);
     } catch {
@@ -244,6 +264,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
         entryError(id, 'document-unavailable', 'Chrome could not inspect this document. No PDF panel was opened.');
         return;
       }
+      if (ENTRY_TRACE && top.documentId) inspectedDocuments?.set(id, top.documentId);
       if (value.mime.toLowerCase() === 'application/pdf') {
         if (ENTRY_TRACE) recordEntryTrace({ stage: 'mime-pdf', tabId: id });
         // Positive MIME remains useful if Chrome rejects this first callback's gesture:
@@ -272,40 +293,57 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
     if (msg.type === PDF_DOCUMENT && sender.frameId === 0 && sender.tab?.id !== undefined && sender.url && 'kind' in msg && (msg.kind === 'html' || msg.kind === 'pdf')) {
+      if (ENTRY_TRACE) {
+        const known = documents.get(sender.tab.id), inspected = inspectedDocuments?.get(sender.tab.id);
+        recordEntryTrace({ stage: msg.kind === 'html' ? 'announce-html' : 'announce-pdf', tabId: sender.tab.id,
+          knownKind: known?.kind, hasGrant: grants.has(sender.tab.id),
+          sameDocument: known ? samePublicDocument(known.url, sender.url) : undefined,
+          sameInspectedDocument: inspected && sender.documentId ? inspected === sender.documentId : undefined });
+      }
       remember(sender.tab.id, { url: sender.url, kind: msg.kind });
-      if (msg.kind === 'html') disableTabPanel(sender.tab.id);
+      if (msg.kind === 'html') disableTabPanel(sender.tab.id, 'html-announce');
       return false;
     }
     if (msg.type !== PDF_CONTEXT || !fromPanel(sender)) return false;
     const requested = 'tabId' in msg && typeof msg.tabId === 'number' && Number.isInteger(msg.tabId) ? msg.tabId : undefined;
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'context-request', tabId: requested });
+    const none = (reason: EntryTraceReason): PdfContext => {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'context-none', tabId: requested, reason });
+      return { kind: 'none' };
+    };
     void (async (): Promise<PdfContext> => {
       // The panel is tab-specific. Do not use active/lastFocusedWindow: when the sidebar has
       // focus, that query can return a different tab (or none) and look like an expired grant.
-      if (requested === undefined) return { kind: 'none' };
+      if (requested === undefined) return none('no-request-tab');
       const grant = await loadGrant(requested);
       const generation = generations.get(requested);
-      if (!grant || grant.tabId !== requested || Date.now() - grant.at > 30 * 60_000 || grant.at > Date.now() + 1000) return { kind: 'none' };
+      if (!grant || grant.tabId !== requested || Date.now() - grant.at > 30 * 60_000 || grant.at > Date.now() + 1000) return none('no-valid-grant');
       let tab: chrome.tabs.Tab;
-      try { tab = await chrome.tabs.get(requested); } catch { return { kind: 'none' }; }
-      if (!tab.url || publicPdfUrl(tab.url) !== grant.url) return { kind: 'none' };
+      try { tab = await chrome.tabs.get(requested); } catch { return none('context-tab-missing'); }
+      if (!tab.url || publicPdfUrl(tab.url) !== grant.url) return none('context-url-mismatch');
       let doc: unknown; let receiver = false;
       try { doc = await chrome.tabs.sendMessage(requested, { type: PDF_PING }, { frameId: 0 }); receiver = true; } catch { /* native PDF has no receiver */ }
+      if (ENTRY_TRACE) recordEntryTrace({ stage: !receiver ? 'context-no-receiver'
+        : doc && typeof doc === 'object' && 'kind' in doc && doc.kind === 'pdf' ? 'context-ping-pdf'
+        : doc && typeof doc === 'object' && 'kind' in doc && doc.kind === 'html' ? 'context-ping-html' : 'context-ping-other', tabId: requested });
       try {
         const current = await chrome.tabs.get(requested);
-        if (!current.url || publicPdfUrl(current.url) !== grant.url) return { kind: 'none' };
-      } catch { return { kind: 'none' }; }
+        if (!current.url || publicPdfUrl(current.url) !== grant.url) return none('context-url-recheck');
+      } catch { return none('context-tab-recheck-missing'); }
       // Re-check and consume after the last await so two in-flight context requests cannot
       // both toggle the overlay (the 200ms content-script de-dupe is not a grant lock).
-      if (!stillGranted(requested, grant, generation)) return { kind: 'none' };
+      if (!stillGranted(requested, grant, generation)) return none('grant-replaced');
       if (receiver && !(doc && typeof doc === 'object' && 'kind' in doc && doc.kind === 'pdf')) {
-        forget(requested);
+        forget(requested, 'context-handoff');
         remember(requested, { url: tab.url, kind: 'html' });
-        void chrome.sidePanel.setOptions({ enabled: false });
+        disableGlobalPanel('context-handoff');
         await toggle(requested);
+        if (ENTRY_TRACE) recordEntryTrace({ stage: 'context-web', tabId: requested });
         return { kind: 'web' };
       }
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'context-pdf', tabId: requested });
       return { kind: 'pdf', grant: { tabId: grant.tabId, url: grant.url, token: grant.token } };
-    })().then(reply, () => reply({ kind: 'none' }));
+    })().then(reply, () => reply(none('context-error')));
     return true;
   });
 

@@ -74,3 +74,16 @@ describe('test-only shortcut session breadcrumbs', () => {
         publicUrl: undefined, status: undefined, code: undefined, active: undefined, visible: undefined }]);
   });
 });
+
+it('teardown reasons and identity comparisons are allowlisted; raw document identity is never copied', async () => {
+  const store = memoryStore(); const trace = createEntryRecorder(store, () => 1000);
+  trace.record({ stage: 'forget', tabId: 8, reason: 'context-handoff', knownKind: 'pdf', hasGrant: true });
+  trace.record({ stage: 'announce-html', tabId: 8, sameDocument: true, sameInspectedDocument: false });
+  await trace.drained();
+  expect(store.rows()[0]).toMatchObject({ reason: 'context-handoff', knownKind: 'pdf', hasGrant: true });
+  expect(store.rows()[1]).toMatchObject({ sameDocument: true, sameInspectedDocument: false });
+  const rows = readEntryTrace([{ stage: 'announce-html', at: 1, boot: 1, reason: 'private-url', knownKind: 'secret',
+    hasGrant: 'yes', sameDocument: 1, sameInspectedDocument: 'yes', documentId: 'private-id', token: 'private-token' }]);
+  expect(rows[0]).toMatchObject({ reason: undefined, knownKind: undefined, hasGrant: undefined, sameDocument: undefined, sameInspectedDocument: undefined });
+  expect(JSON.stringify(rows)).not.toMatch(/private|secret/);
+});

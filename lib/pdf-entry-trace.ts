@@ -9,6 +9,13 @@ const stages = {
   'mime-web': true, 'mime-stale': true, 'open-request': true, 'open-resolved': true,
   'open-rejected': true, 'options-rejected': true, 'entry-error': true,
   'options-resolved': true, 'open-tab-state': true,
+  forget: true, 'disable-request': true, 'disable-resolved': true, 'disable-rejected': true,
+  'close-request': true, 'close-resolved': true, 'close-rejected': true,
+  'global-disable-request': true, 'global-disable-resolved': true, 'global-disable-rejected': true,
+  'announce-html': true, 'announce-pdf': true,
+  'context-request': true, 'context-ping-pdf': true, 'context-ping-html': true,
+  'context-ping-other': true, 'context-no-receiver': true,
+  'context-pdf': true, 'context-none': true, 'context-web': true,
   'panel-load': true, 'panel-visible': true, 'panel-hidden': true, 'panel-unload': true,
 };
 export type EntryTraceStage = keyof typeof stages;
@@ -17,8 +24,22 @@ const errorCodes = {
   'document-unavailable': true, 'webpage-unavailable': true,
 };
 export type EntryErrorCode = keyof typeof errorCodes;
+const reasons = {
+  startup: true, 'tab-removed': true, 'navigation-public': true, 'navigation-checked': true,
+  'navigation-tab-missing': true, 'webpage-route': true, 'html-announce': true, 'context-handoff': true,
+  'no-request-tab': true, 'no-valid-grant': true, 'context-tab-missing': true,
+  'context-url-mismatch': true, 'context-url-recheck': true, 'context-tab-recheck-missing': true,
+  'grant-replaced': true, 'context-error': true,
+};
+export type EntryTraceReason = keyof typeof reasons;
 export interface EntryTraceInput {
   stage: EntryTraceStage;
+  reason?: EntryTraceReason;
+  knownKind?: 'pdf' | 'html';
+  hasGrant?: boolean;
+  sameDocument?: boolean;
+  /** Compares sender.documentId with last inspected top-frame documentId; never stores either ID. */
+  sameInspectedDocument?: boolean;
   tabId?: number;
   hasTab?: boolean;
   hasUrl?: boolean;
@@ -51,6 +72,11 @@ export function readEntryTrace(value: unknown): EntryTraceRow[] {
       publicUrl: 'publicUrl' in v && typeof v.publicUrl === 'boolean' ? v.publicUrl : undefined,
       status: 'status' in v && (v.status === 'loading' || v.status === 'complete' || v.status === 'other') ? v.status : undefined,
       code,
+      reason: 'reason' in v ? Object.keys(reasons).find((key): key is EntryTraceReason => key === v.reason) : undefined,
+      knownKind: 'knownKind' in v && (v.knownKind === 'pdf' || v.knownKind === 'html') ? v.knownKind : undefined,
+      hasGrant: 'hasGrant' in v && typeof v.hasGrant === 'boolean' ? v.hasGrant : undefined,
+      sameDocument: 'sameDocument' in v && typeof v.sameDocument === 'boolean' ? v.sameDocument : undefined,
+      sameInspectedDocument: 'sameInspectedDocument' in v && typeof v.sameInspectedDocument === 'boolean' ? v.sameInspectedDocument : undefined,
       active: 'active' in v && typeof v.active === 'boolean' ? v.active : undefined,
       visible: 'visible' in v && typeof v.visible === 'boolean' ? v.visible : undefined,
     }];
@@ -69,7 +95,8 @@ export function createEntryRecorder(storage: {
     buffered.push({
       at: now(), boot, stage: input.stage, tabId: input.tabId, hasTab: input.hasTab,
       hasUrl: input.hasUrl, publicUrl: input.publicUrl, status: input.status, code: input.code,
-      active: input.active, visible: input.visible,
+      active: input.active, visible: input.visible, reason: input.reason, knownKind: input.knownKind,
+      hasGrant: input.hasGrant, sameDocument: input.sameDocument, sameInspectedDocument: input.sameInspectedDocument,
     });
     if (scheduled) return;
     scheduled = true;
