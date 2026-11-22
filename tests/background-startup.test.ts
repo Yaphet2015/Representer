@@ -19,7 +19,7 @@ it.each([false, true])('the real worker entry registers commands synchronously w
     commands: { onCommand: { addListener: (listener: typeof commands[number]) => commands.push(listener) } },
     sidePanel: { setOptions: vi.fn(pending), setPanelBehavior: vi.fn(pending), open,
       onClosed: { addListener: panelClosed }, onOpened: { addListener: panelOpened } },
-    tabs: { onUpdated: event(), onRemoved: event(), query, sendMessage: async () => {} },
+    tabs: { get: async (id: number) => ({ id, active: true }), onUpdated: event(), onRemoved: event(), query, sendMessage: async () => {} },
     scripting: { executeScript: (_injection: unknown, callback: (results: unknown) => void) => callback([{ frameId: 0, documentId: 'doc-8', result: { url: 'https://files.example.org/resource', mime: 'application/pdf' } }]) },
   });
   const start: unknown = (await import('../entrypoints/background')).default;

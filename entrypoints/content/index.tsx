@@ -85,6 +85,7 @@ export default defineContentScript({
     let last = 0;
     let disposeOverlay = () => {};
     const toggle = () => {
+      if (ctx.isInvalid || kind === 'pdf') return;
       if (Date.now() - last < 200) return; // de-dupe command + keydown fallback
       last = Date.now();
       if (!ui) {
@@ -124,10 +125,16 @@ export default defineContentScript({
     // handle the key on the page ourselves. Not used when the user assigned a different shortcut.
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     let fallback = false;
-    const refresh = () => rpc('getShortcut', {}).then((r) => { if (r.ok) fallback = !r.shortcut; });
+    const refresh = () => {
+      if (ctx.isInvalid) return;
+      return rpc('getShortcut', {}).then((r) => { if (!ctx.isInvalid && r.ok) fallback = !r.shortcut; });
+    };
     refresh();
     ctx.addEventListener(document, 'visibilitychange', () => { if (!document.hidden) refresh(); });
     window.addEventListener('keydown', (e) => {
+      // WXT discovers extension reload/disable lazily via isInvalid; a signal alone
+      // does not notice orphaned DOM listeners. Never let one consume a shortcut.
+      if (ctx.isInvalid || kind === 'pdf') return;
       if (!fallback || e.repeat || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'e') return;
       if (!(isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
       e.preventDefault(); e.stopPropagation();
