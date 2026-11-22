@@ -149,11 +149,18 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
         : 'The PDF panel could not open. Click the toolbar button to retry.');
     };
     // Configure and open in the gestured API callback; no Promise continuation before open().
-    void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true }).catch(ENTRY_TRACE ? (error: unknown) => {
+    void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true }).then(ENTRY_TRACE ? () => {
+      recordEntryTrace({ stage: 'options-resolved', tabId: id });
+    } : undefined).catch(ENTRY_TRACE ? (error: unknown) => {
       recordEntryTrace({ stage: 'options-rejected', tabId: id }); failed(error);
     } : failed);
     void chrome.sidePanel.open({ tabId: id }).then(() => {
-      if (ENTRY_TRACE) recordEntryTrace({ stage: 'open-resolved', tabId: id });
+      if (ENTRY_TRACE) {
+        recordEntryTrace({ stage: 'open-resolved', tabId: id });
+        // After the gestured call only: whether Chrome still treats this tab as active, which
+        // decides between showing now and only setting the tab registry's active entry.
+        void chrome.tabs.get(id).then((t) => recordEntryTrace({ stage: 'open-tab-state', tabId: id, active: t.active }), () => {});
+      }
       if (grants.get(id) === grant && (navigationVersions.get(id) ?? 0) === version) {
         remember(id, { url, kind: 'pdf' });
         clearError(id);
@@ -250,12 +257,12 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     });
   };
   chrome.action.onClicked.addListener(ENTRY_TRACE ? (tab) => {
-    recordEntryTrace({ stage: 'toolbar', tabId: tab.id });
+    recordEntryTrace({ stage: 'toolbar', tabId: tab.id, active: tab.active });
     activate(tab);
   } : activate);
   chrome.commands.onCommand.addListener(ENTRY_TRACE ? (cmd, tab) => {
     if (cmd !== TOGGLE_COMMAND) return;
-    if (ENTRY_TRACE) recordEntryTrace({ stage: 'command', tabId: tab?.id, hasTab: !!tab, hasUrl: !!tab?.url,
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'command', tabId: tab?.id, hasTab: !!tab, hasUrl: !!tab?.url, active: tab?.active,
       publicUrl: !!tab?.url && !!publicPdfUrl(tab.url),
       status: tab?.status === 'loading' || tab?.status === 'complete' ? tab.status : 'other' });
     activate(tab);

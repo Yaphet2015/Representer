@@ -54,4 +54,23 @@ describe('test-only shortcut session breadcrumbs', () => {
     trace.record({ stage: 'open-resolved' }); await trace.drained();
     expect(store.rows().map((r) => r.stage)).toEqual(['open-resolved']);
   });
+  it('keeps the panel lifecycle and tab-active fields, and drops non-boolean values', async () => {
+    const store = memoryStore();
+    const trace = createEntryRecorder(store, () => 1000);
+    trace.record({ stage: 'command', tabId: 8, active: true });
+    trace.record({ stage: 'options-resolved', tabId: 8 });
+    trace.record({ stage: 'open-tab-state', tabId: 8, active: false });
+    trace.record({ stage: 'panel-load', tabId: 8, visible: false });
+    trace.record({ stage: 'panel-visible', tabId: 8, visible: true });
+    trace.record({ stage: 'panel-unload', tabId: 8, visible: false });
+    await trace.drained();
+    expect(store.rows().map((r) => [r.stage, r.active, r.visible])).toEqual([
+      ['command', true, undefined], ['options-resolved', undefined, undefined],
+      ['open-tab-state', false, undefined], ['panel-load', undefined, false],
+      ['panel-visible', undefined, true], ['panel-unload', undefined, false],
+    ]);
+    expect(readEntryTrace([{ stage: 'panel-load', at: 1, boot: 1, visible: 'yes', active: 1 }]))
+      .toEqual([{ stage: 'panel-load', at: 1, boot: 1, tabId: undefined, hasTab: undefined, hasUrl: undefined,
+        publicUrl: undefined, status: undefined, code: undefined, active: undefined, visible: undefined }]);
+  });
 });

@@ -1,11 +1,15 @@
 /** Test-build-only, bounded session breadcrumbs; never page text, URLs, or grants. */
 export const ENTRY_TRACE_KEY = 'rp-entry-check-v1';
+/** Separate key: the panel page and worker never read-modify-write the same array concurrently. */
+export const PANEL_TRACE_KEY = 'rp-entry-check-panel-v1';
 const stages = {
   'worker-main': true, 'entry-install': true, 'listeners-ready': true, 'hydrate-done': true,
   command: true, toolbar: true, activate: true, 'skip-no-tab': true, 'skip-url': true,
   'skip-loading': true, 'cached-pdf': true, 'mime-request': true, 'mime-pdf': true,
   'mime-web': true, 'mime-stale': true, 'open-request': true, 'open-resolved': true,
   'open-rejected': true, 'options-rejected': true, 'entry-error': true,
+  'options-resolved': true, 'open-tab-state': true,
+  'panel-load': true, 'panel-visible': true, 'panel-hidden': true, 'panel-unload': true,
 };
 export type EntryTraceStage = keyof typeof stages;
 const errorCodes = {
@@ -21,6 +25,10 @@ export interface EntryTraceInput {
   publicUrl?: boolean;
   status?: 'loading' | 'complete' | 'other';
   code?: EntryErrorCode;
+  /** Tab.active as Chrome reported it (command tab, or tabs.get after open). */
+  active?: boolean;
+  /** document.visibilityState === 'visible' inside the panel page. */
+  visible?: boolean;
 }
 export interface EntryTraceRow extends EntryTraceInput { at: number; boot: number }
 export const ENTRY_TRACE_LIMIT = 80;
@@ -43,6 +51,8 @@ export function readEntryTrace(value: unknown): EntryTraceRow[] {
       publicUrl: 'publicUrl' in v && typeof v.publicUrl === 'boolean' ? v.publicUrl : undefined,
       status: 'status' in v && (v.status === 'loading' || v.status === 'complete' || v.status === 'other') ? v.status : undefined,
       code,
+      active: 'active' in v && typeof v.active === 'boolean' ? v.active : undefined,
+      visible: 'visible' in v && typeof v.visible === 'boolean' ? v.visible : undefined,
     }];
   }).slice(-ENTRY_TRACE_LIMIT);
 }
@@ -59,6 +69,7 @@ export function createEntryRecorder(storage: {
     buffered.push({
       at: now(), boot, stage: input.stage, tabId: input.tabId, hasTab: input.hasTab,
       hasUrl: input.hasUrl, publicUrl: input.publicUrl, status: input.status, code: input.code,
+      active: input.active, visible: input.visible,
     });
     if (scheduled) return;
     scheduled = true;
@@ -76,11 +87,15 @@ export function createEntryRecorder(storage: {
   return { record, async drained() { await Promise.resolve(); await pending; } };
 }
 
-let recorder: ReturnType<typeof createEntryRecorder> | undefined;
-export function recordEntryTrace(input: EntryTraceInput) {
-  recorder ??= createEntryRecorder({
-    read: async () => (await chrome.storage.session.get(ENTRY_TRACE_KEY))[ENTRY_TRACE_KEY],
-    write: async (rows) => { await chrome.storage.session.set({ [ENTRY_TRACE_KEY]: rows }); },
-  });
+const recorders = new Map<string, ReturnType<typeof createEntryRecorder>>();
+export function recordEntryTrace(input: EntryTraceInput, key: string = ENTRY_TRACE_KEY) {
+  let recorder = recorders.get(key);
+  if (!recorder) {
+    recorder = createEntryRecorder({
+      read: async () => (await chrome.storage.session.get(key))[key],
+      write: async (rows) => { await chrome.storage.session.set({ [key]: rows }); },
+    });
+    recorders.set(key, recorder);
+  }
   recorder.record(input);
 }
