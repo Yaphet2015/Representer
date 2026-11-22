@@ -1,0 +1,86 @@
+/** Test-build-only, bounded session breadcrumbs; never page text, URLs, or grants. */
+export const ENTRY_TRACE_KEY = 'rp-entry-check-v1';
+const stages = {
+  'worker-main': true, 'entry-install': true, 'listeners-ready': true, 'hydrate-done': true,
+  command: true, toolbar: true, activate: true, 'skip-no-tab': true, 'skip-url': true,
+  'skip-loading': true, 'cached-pdf': true, 'mime-request': true, 'mime-pdf': true,
+  'mime-web': true, 'mime-stale': true, 'open-request': true, 'open-resolved': true,
+  'open-rejected': true, 'options-rejected': true, 'entry-error': true,
+};
+export type EntryTraceStage = keyof typeof stages;
+const errorCodes = {
+  'pdf-user-gesture': true, 'pdf-open': true, 'document-loading': true,
+  'document-unavailable': true, 'webpage-unavailable': true,
+};
+export type EntryErrorCode = keyof typeof errorCodes;
+export interface EntryTraceInput {
+  stage: EntryTraceStage;
+  tabId?: number;
+  hasTab?: boolean;
+  hasUrl?: boolean;
+  publicUrl?: boolean;
+  status?: 'loading' | 'complete' | 'other';
+  code?: EntryErrorCode;
+}
+export interface EntryTraceRow extends EntryTraceInput { at: number; boot: number }
+export const ENTRY_TRACE_LIMIT = 80;
+
+export function readEntryTrace(value: unknown): EntryTraceRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((v: unknown): EntryTraceRow[] => {
+    if (!v || typeof v !== 'object' || !('stage' in v) || typeof v.stage !== 'string'
+      || !Object.hasOwn(stages, v.stage) || !('at' in v) || typeof v.at !== 'number'
+      || !('boot' in v) || typeof v.boot !== 'number') return [];
+    // Reconstruct through the same allowlist used for new rows.
+    const stage = Object.keys(stages).find((key): key is EntryTraceStage => key === v.stage);
+    if (!stage) return [];
+    const code = 'code' in v ? Object.keys(errorCodes).find((key): key is EntryErrorCode => key === v.code) : undefined;
+    return [{
+      stage, at: v.at, boot: v.boot,
+      tabId: 'tabId' in v && typeof v.tabId === 'number' ? v.tabId : undefined,
+      hasTab: 'hasTab' in v && typeof v.hasTab === 'boolean' ? v.hasTab : undefined,
+      hasUrl: 'hasUrl' in v && typeof v.hasUrl === 'boolean' ? v.hasUrl : undefined,
+      publicUrl: 'publicUrl' in v && typeof v.publicUrl === 'boolean' ? v.publicUrl : undefined,
+      status: 'status' in v && (v.status === 'loading' || v.status === 'complete' || v.status === 'other') ? v.status : undefined,
+      code,
+    }];
+  }).slice(-ENTRY_TRACE_LIMIT);
+}
+
+export function createEntryRecorder(storage: {
+  read(): Promise<unknown>;
+  write(rows: EntryTraceRow[]): Promise<void>;
+}, now: () => number = Date.now) {
+  const boot = now();
+  let buffered: EntryTraceRow[] = [];
+  let scheduled = false;
+  let pending = Promise.resolve();
+  const record = (input: EntryTraceInput) => {
+    buffered.push({
+      at: now(), boot, stage: input.stage, tabId: input.tabId, hasTab: input.hasTab,
+      hasUrl: input.hasUrl, publicUrl: input.publicUrl, status: input.status, code: input.code,
+    });
+    if (scheduled) return;
+    scheduled = true;
+    // Do not call another Chrome API before the routing handler reaches open/executeScript.
+    // No interval, timeout, port, or polling keeps the worker awake.
+    queueMicrotask(() => {
+      scheduled = false;
+      const batch = buffered; buffered = [];
+      pending = pending.then(async () => {
+        const previous = readEntryTrace(await storage.read());
+        await storage.write([...previous, ...batch].slice(-ENTRY_TRACE_LIMIT));
+      }).catch(() => {}); // Diagnostics must never break the action being observed.
+    });
+  };
+  return { record, async drained() { await Promise.resolve(); await pending; } };
+}
+
+let recorder: ReturnType<typeof createEntryRecorder> | undefined;
+export function recordEntryTrace(input: EntryTraceInput) {
+  recorder ??= createEntryRecorder({
+    read: async () => (await chrome.storage.session.get(ENTRY_TRACE_KEY))[ENTRY_TRACE_KEY],
+    write: async (rows) => { await chrome.storage.session.set({ [ENTRY_TRACE_KEY]: rows }); },
+  });
+  recorder.record(input);
+}

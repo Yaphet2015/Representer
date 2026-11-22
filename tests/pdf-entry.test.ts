@@ -529,3 +529,28 @@ describe('document-pinned overlay delivery', () => {
     expect(open).not.toHaveBeenCalled();
   });
 });
+
+
+describe('worker wake hypotheses', () => {
+  it('registers and handles the first PDF command even while session rehydration never resolves', () => {
+    action.clear(); messages.clear(); updated.clear(); removed.clear(); command.clear(); connect.clear();
+    vi.spyOn(chrome.storage.session, 'get').mockImplementation(() => new Promise(() => {}));
+    installPdfEntry(async (id) => { await toggle(id); });
+    execute.mockClear(); open.mockClear();
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(execute).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ target: { tabId: 8, frameIds: [0] } }), expect.any(Function));
+    expect(open).toHaveBeenCalledExactlyOnceWith({ tabId: 8 });
+  });
+  it('reopens a warm cached PDF after its panel was closed without requiring rehydration or classification', async () => {
+    let visible = false;
+    open.mockImplementation(async () => { visible = true; });
+    action.fire(tab); await flush();
+    expect(visible).toBe(true);
+    visible = false; // Chrome's X changes visibility, not the extension's document kind.
+    execute.mockClear(); open.mockClear();
+    command.fire(TOGGLE_COMMAND, tab);
+    expect(visible).toBe(true);
+    expect(open).toHaveBeenCalledExactlyOnceWith({ tabId: 8 });
+    expect(execute).not.toHaveBeenCalled();
+  });
+});

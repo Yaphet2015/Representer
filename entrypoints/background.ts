@@ -1,3 +1,4 @@
+import { recordEntryTrace } from '@/lib/pdf-entry-trace';
 import { installPdfEntry } from '@/lib/pdf-entry';
 import { visualSession } from '@/lib/pdf-visual-sessions';
 import { visualInspectReport } from '@/lib/pdf-visual';
@@ -16,6 +17,7 @@ import type { ChatMessage } from '@/lib/types';
 const COMMAND = 'toggle-overlay';
 
 export default defineBackground(() => {
+  if (import.meta.env.VITE_RP_ENTRY_DIAG === '1') recordEntryTrace({ stage: 'worker-main' });
   const cache = createCache(chromeKV);
   const summarizer = createSummarizeRunner(cache);
   const ctx = async () => { const s = await loadSettings(); return { s, lang: resolveLang(s.lang, uiLanguage()) }; };

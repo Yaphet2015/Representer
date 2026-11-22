@@ -1,8 +1,11 @@
+import { recordEntryTrace, type EntryErrorCode } from './pdf-entry-trace';
 import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, samePublicDocument, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
 import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
 import { createPdfVisualSession } from './pdf-visual';
 import { PDF_VISUAL_PORT, isPdfVisualRegister, panelRenderBackend } from './pdf-visual-port';
+
+const ENTRY_TRACE = import.meta.env.VITE_RP_ENTRY_DIAG === '1';
 
 /** Same manifest command as the webpage overlay (chrome.commands). Reserved `_execute_action` is not used: it does not fire onCommand and would drop existing user bindings. */
 export const TOGGLE_COMMAND = 'toggle-overlay';
@@ -17,6 +20,7 @@ function fromPanel(sender: chrome.runtime.MessageSender): boolean {
 
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
 export function installPdfEntry(toggle: (id?: number, documentId?: string) => Promise<void>) {
+  if (ENTRY_TRACE) recordEntryTrace({ stage: 'entry-install' });
   type DocumentKind = { url: string; kind: 'html' | 'pdf' };
   const documents = new Map<number, DocumentKind>();
   const grants = new Map<number, PdfAuthorization>();
@@ -83,6 +87,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       if (isPdfAuthorization(v) && !grants.has(v.tabId)) adopt(v);
       if (isDocumentKind(v) && !touched.has(v.tabId) && !documents.has(v.tabId)) documents.set(v.tabId, { url: v.url, kind: v.kind });
     }
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'hydrate-done' });
   });
 
   chrome.tabs.onRemoved.addListener(forget);
@@ -116,7 +121,8 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     void chrome.action.setBadgeText({ tabId: id, text: '' }).catch(() => {});
     void chrome.action.setTitle({ tabId: id, title: 'Representer' }).catch(() => {});
   };
-  const entryError = (id: number, code: string, message: string) => {
+  const entryError = (id: number, code: EntryErrorCode, message: string) => {
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'entry-error', tabId: id, code });
     // Do not log URLs, document contents, authorization tokens, or raw API errors.
     const previous = warnings.get(id);
     if (previous === undefined || Date.now() - previous >= 60_000) {
@@ -129,6 +135,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   chrome.tabs.onRemoved.addListener((id) => { warnings.delete(id); recovering.delete(id); });
 
   const openSidebar = (id: number, url: string, version: number) => {
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'open-request', tabId: id });
     const grant: PdfAuthorization = { tabId: id, url, token: crypto.randomUUID(), at: Date.now() };
     generations.set(id, (generations.get(id) ?? 0) + 1); grants.set(id, grant);
     void chrome.storage.session.set({ [key(id)]: grant });
@@ -142,13 +149,18 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
         : 'The PDF panel could not open. Click the toolbar button to retry.');
     };
     // Configure and open in the gestured API callback; no Promise continuation before open().
-    void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true }).catch(failed);
+    void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true }).catch(ENTRY_TRACE ? (error: unknown) => {
+      recordEntryTrace({ stage: 'options-rejected', tabId: id }); failed(error);
+    } : failed);
     void chrome.sidePanel.open({ tabId: id }).then(() => {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'open-resolved', tabId: id });
       if (grants.get(id) === grant && (navigationVersions.get(id) ?? 0) === version) {
         remember(id, { url, kind: 'pdf' });
         clearError(id);
       }
-    }, failed);
+    }, ENTRY_TRACE ? (error: unknown) => {
+      recordEntryTrace({ stage: 'open-rejected', tabId: id }); failed(error);
+    } : failed);
     void chrome.runtime.sendMessage({ type: 'rp-pdf-selected' }).catch(() => {});
   };
 
@@ -180,29 +192,43 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
 
   const activate = (tab?: { id?: number; url?: string; status?: string }) => {
     // Keep the original command tab. Do not guess a different active tab/window.
-    if (tab?.id === undefined) return;
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'activate', tabId: tab?.id, hasTab: !!tab, hasUrl: !!tab?.url,
+      status: tab?.status === 'loading' || tab?.status === 'complete' ? tab.status : 'other' });
+    if (tab?.id === undefined) {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'skip-no-tab' });
+      return;
+    }
     const id = tab.id;
     const url = tab.url ? publicPdfUrl(tab.url) : null;
-    if (!url) return;
+    if (!url) {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'skip-url', tabId: id });
+      return;
+    }
     if (tab.status === 'loading') {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'skip-loading', tabId: id });
       entryError(id, 'document-loading', 'The document is still loading. Try again when it is ready.');
       return;
     }
     const version = navigationVersions.get(id) ?? 0;
     const known = documents.get(id);
     if (known?.kind === 'pdf' && samePublicDocument(known.url, url)) {
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'cached-pdf', tabId: id });
       openSidebar(id, url, version);
       return;
     }
     // First API request in this user action. No receiver, injection failure, filename, and
     // HTTP(S) URL are never evidence of PDF. Read the top document's actual MIME instead.
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'mime-request', tabId: id });
     chrome.scripting.executeScript({
       target: { tabId: id, frameIds: [0] },
       injectImmediately: true,
       func: () => ({ url: location.href, mime: document.contentType }),
     }, (results) => {
       const error = chrome.runtime.lastError;
-      if ((navigationVersions.get(id) ?? 0) !== version) return;
+      if ((navigationVersions.get(id) ?? 0) !== version) {
+        if (ENTRY_TRACE) recordEntryTrace({ stage: 'mime-stale', tabId: id });
+        return;
+      }
       const top = results?.find((r) => r.frameId === 0);
       const value: unknown = top?.result;
       if (error || !top || !value || typeof value !== 'object'
@@ -212,17 +238,29 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
         return;
       }
       if (value.mime.toLowerCase() === 'application/pdf') {
+        if (ENTRY_TRACE) recordEntryTrace({ stage: 'mime-pdf', tabId: id });
         // Positive MIME remains useful if Chrome rejects this first callback's gesture:
         // a retry can open synchronously, without reclassifying an already confirmed PDF.
         remember(id, { url: value.url, kind: 'pdf' });
         openSidebar(id, url, version);
       } else {
+        if (ENTRY_TRACE) recordEntryTrace({ stage: 'mime-web', tabId: id });
         void showWebpage(id, value.url, version, top.documentId);
       }
     });
   };
-  chrome.action.onClicked.addListener(activate);
-  chrome.commands.onCommand.addListener((cmd, tab) => { if (cmd === TOGGLE_COMMAND) activate(tab); });
+  chrome.action.onClicked.addListener(ENTRY_TRACE ? (tab) => {
+    recordEntryTrace({ stage: 'toolbar', tabId: tab.id });
+    activate(tab);
+  } : activate);
+  chrome.commands.onCommand.addListener(ENTRY_TRACE ? (cmd, tab) => {
+    if (cmd !== TOGGLE_COMMAND) return;
+    if (ENTRY_TRACE) recordEntryTrace({ stage: 'command', tabId: tab?.id, hasTab: !!tab, hasUrl: !!tab?.url,
+      publicUrl: !!tab?.url && !!publicPdfUrl(tab.url),
+      status: tab?.status === 'loading' || tab?.status === 'complete' ? tab.status : 'other' });
+    activate(tab);
+  } : (cmd, tab) => { if (cmd === TOGGLE_COMMAND) activate(tab); });
+  if (ENTRY_TRACE) recordEntryTrace({ stage: 'listeners-ready' });
 
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
