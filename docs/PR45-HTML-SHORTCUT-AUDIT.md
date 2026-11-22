@@ -4,7 +4,9 @@
 
 c66eec8 production, a new PDF document, one canvas Ctrl+E: native side panel read all 59 pages and remained visible. The diagnostic build did likewise. Retain that positive evidence. The earlier disappearance incident is not an established application-close bug; the action called “toolbar” lacked a toolbar trace and may have been Chrome's own panel toggle.
 
-On a new example.com document with no hash, a single canvas Ctrl+E left neither overlay nor side panel visible. This source audit does not claim that this particular fresh document had stale shortcut state or that Chrome delivers both DOM keydown and onCommand for an assigned key. Those facts need live evidence.
+Correction at 2026-11-22 13:33 SGT: the parent inspected the execution record and found that the reported f63e4b3 diagnostic HTML failure used a page-level browser_press_key, not a native desktop keystroke. That test delivered a DOM key event; it did not exercise Chrome's extension-command dispatch. The trace contained content-key-command-owned but no command or content toggle/mount stages. This is not evidence that our listener swallowed a native Chrome command, nor evidence of an HTML routing regression. Page-level simulated key events are not acceptance tests for extension shortcuts.
+
+The parent then repeated the f63e4b3 diagnostic HTML test using the real Computer desktop Ctrl+E. The parent's screenshot confirmed the in-page rounded overlay opened, with no native Chrome side panel. Diagnostic HTML native-key GUI acceptance therefore passed. The latest f63e4b3 **production** HTML and PDF native-key GUI checks are still being performed by the parent as of this correction; neither is recorded here as passed.
 
 ## Confirmed independent defect and executed reproduction
 
@@ -19,7 +21,7 @@ Against c66eec8, five initial cases yielded three failures:
 - same stale state, background command first and later DOM event: overlay ends closed;
 - cached assigned Ctrl+E -> NotSet without visibilitychange: fallback never opens.
 
-The two passing controls were a freshly assigned HTML shortcut (including loading-kind invalidation) and a genuinely unassigned local fallback toggled twice intentionally. Thus stale state is a confirmed defect, but the fresh-assigned control also shows why it cannot simply be asserted as the cause of the latest new-tab screenshot.
+The two passing controls were a freshly assigned HTML shortcut (including loading-kind invalidation) and a genuinely unassigned local fallback toggled twice intentionally. Thus stale state is a confirmed independent defect and the f63e4b3 repair remains justified by these source-harness results. It was not established as the cause of the reported new-tab failure; that report is now corrected above as an invalid page-simulated shortcut test.
 
 ## Minimal ownership repair
 
@@ -29,17 +31,17 @@ No timer/window extension, PDF routing modification, permission, network call or
 
 The timing controls cover command delay 0, 199, 200, 500 and 2000ms. A diagnostic integration case also verifies actual content-to-worker stage recording. Existing orphan-context and affirmative-PDF content tests remain passing.
 
-## Diagnostic evidence for the still-unconfirmed fresh-document failure
+## Diagnostic evidence and valid native-key acceptance
 
 Worker adds web-toggle-request/resolved around its existing HTML TOGGLE send. Content reports a closed allowlist of stage names to the existing worker message listener (frame 0 only), which writes them under rp-entry-check-v1. This avoids forbidden direct content access to storage.session. No new worker event subscription is added.
 
 Content stages distinguish: command owns key vs real local fallback vs shortcut lookup failure; TOGGLE-message vs keydown toggle; 200ms suppression; create/mount request, mount completion, existing-UI toggle and mounting rejection. Mount completion means u.mount returned, not proof of React paint or visibility. Production excludes these diagnostic messages and records.
 
-If the fresh HTML screenshot still fails, use the diagnostic package and preserve one atomic canvas action with the chronological key snapshot:
+For any future native-key failure, use the diagnostic package and preserve one atomic **Computer desktop** canvas Ctrl+E action, before/after screenshots and the chronological key snapshot. Do not substitute page-level key simulation:
 - no command: environment/shortcut delivery evidence is needed, not another PDF patch;
 - command + mime-web + web-toggle-request but no content-toggle-message: investigate document-targeted message/content delivery;
 - content-mount-request then content-mount-rejected: creation failed;
 - content-mounted and no later toggle-existing yet invisible: investigate actual DOM/rendering/desktop state; don't call it double-toggle;
 - two accepted toggle sources with toggle-existing: a real duplicate is established.
 
-Do not claim the new package passed GUI HTML or PDF until parent screenshots verify it. c66eec8 PDF acceptance remains a fact for that frozen package.
+Acceptance at 13:33 SGT: f63e4b3 diagnostic HTML passed with a native Computer keystroke and parent screenshot; f63e4b3 production HTML/PDF native GUI acceptance remains pending. c66eec8 PDF acceptance remains a fact for that frozen package. This correction changes documentation only: no production-code repair, package rebuild, merge or release follows from the invalid page-simulated failure report. The original frozen f63e4b3 production package and its SHA256 remain valid.
