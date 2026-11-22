@@ -2,7 +2,18 @@
 export const ENTRY_TRACE_KEY = 'rp-entry-check-v1';
 /** Separate key: the panel page and worker never read-modify-write the same array concurrently. */
 export const PANEL_TRACE_KEY = 'rp-entry-check-panel-v1';
+export const CONTENT_ENTRY_TRACE = 'rp-entry-content-trace';
+const contentStages = {
+  'content-key-fallback': true, 'content-key-command-owned': true, 'content-key-lookup-failed': true,
+  'content-toggle-message': true, 'content-toggle-keydown': true, 'content-toggle-dedup': true,
+  'content-mount-request': true, 'content-mounted': true, 'content-toggle-existing': true, 'content-mount-rejected': true,
+};
+export type ContentEntryStage = keyof typeof contentStages;
+export function isContentEntryStage(value: unknown): value is ContentEntryStage {
+  return typeof value === 'string' && Object.hasOwn(contentStages, value);
+}
 const stages = {
+  ...contentStages, 'web-toggle-request': true, 'web-toggle-resolved': true,
   'worker-main': true, 'entry-install': true, 'listeners-ready': true, 'hydrate-done': true,
   command: true, toolbar: true, activate: true, 'skip-no-tab': true, 'skip-url': true,
   'skip-loading': true, 'cached-pdf': true, 'mime-request': true, 'mime-pdf': true,

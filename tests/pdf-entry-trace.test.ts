@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEntryRecorder, ENTRY_TRACE_LIMIT, readEntryTrace, type EntryTraceInput, type EntryTraceRow } from '../lib/pdf-entry-trace';
+import { createEntryRecorder, isContentEntryStage, ENTRY_TRACE_LIMIT, readEntryTrace, type EntryTraceInput, type EntryTraceRow } from '../lib/pdf-entry-trace';
 
 function memoryStore() {
   let rows: unknown = [];
@@ -86,4 +86,12 @@ it('teardown reasons and identity comparisons are allowlisted; raw document iden
     hasGrant: 'yes', sameDocument: 1, sameInspectedDocument: 'yes', documentId: 'private-id', token: 'private-token' }]);
   expect(rows[0]).toMatchObject({ reason: undefined, knownKind: undefined, hasGrant: undefined, sameDocument: undefined, sameInspectedDocument: undefined });
   expect(JSON.stringify(rows)).not.toMatch(/private|secret/);
+});
+
+it('only accepts the closed set of diagnostic content lifecycle stage names', () => {
+  expect(isContentEntryStage('content-mounted')).toBe(true);
+  expect(isContentEntryStage('content-key-command-owned')).toBe(true);
+  expect(isContentEntryStage('forget')).toBe(false);
+  expect(isContentEntryStage('https://private.example')).toBe(false);
+  expect(isContentEntryStage({ stage: 'content-mounted' })).toBe(false);
 });

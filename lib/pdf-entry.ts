@@ -1,4 +1,4 @@
-import { recordEntryTrace, type EntryErrorCode, type EntryTraceReason } from './pdf-entry-trace';
+import { CONTENT_ENTRY_TRACE, isContentEntryStage, recordEntryTrace, type EntryErrorCode, type EntryTraceReason } from './pdf-entry-trace';
 import { PDF_CONTEXT, PDF_DOCUMENT, PDF_PING, PDF_VISUAL_CLOSE, publicPdfUrl, pdfCacheUrl, samePublicDocument, type PdfContext, isPdfAuthorization, type PdfAuthorization, isPdfPanelUrl } from './pdf-contract';
 import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
@@ -210,7 +210,9 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       if (!current()) return;
       remember(id, { url, kind: 'html' });
       disableTabPanel(id, 'webpage-route');
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'web-toggle-request', tabId: id });
       await toggle(id, documentId);
+      if (ENTRY_TRACE) recordEntryTrace({ stage: 'web-toggle-resolved', tabId: id });
       if (current()) clearError(id);
     } catch {
       if (current()) entryError(id, 'webpage-unavailable', 'The webpage panel could not load. Chrome may have denied access to this document.');
@@ -292,6 +294,10 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
 
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
+    if (ENTRY_TRACE && msg.type === CONTENT_ENTRY_TRACE && sender.frameId === 0 && sender.tab?.id !== undefined
+      && 'stage' in msg && isContentEntryStage(msg.stage)) {
+      recordEntryTrace({ stage: msg.stage, tabId: sender.tab.id }); return false;
+    }
     if (msg.type === PDF_DOCUMENT && sender.frameId === 0 && sender.tab?.id !== undefined && sender.url && 'kind' in msg && (msg.kind === 'html' || msg.kind === 'pdf')) {
       if (ENTRY_TRACE) {
         const known = documents.get(sender.tab.id), inspected = inspectedDocuments?.get(sender.tab.id);

@@ -9,6 +9,8 @@ vi.mock('../lib/frame-bridge', () => ({ installFrameWorker: () => () => {} }));
 vi.mock('../lib/messages', () => ({ TOGGLE: { type: 'TOGGLE' }, rpc: vi.fn() }));
 vi.mock('../lib/content-init', () => ({ claimContentInitialization: () => true }));
 
+const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules(); });
 
 async function load(mime: string, shortcut = '') {
@@ -51,7 +53,7 @@ async function load(mime: string, shortcut = '') {
 it('HTML with an unassigned command still uses the page fallback', async () => {
   const p = await load('text/html');
   expect(p.press().defaultPrevented).toBe(true);
-  await Promise.resolve(); expect(p.mount).toHaveBeenCalledOnce();
+  await flush(); expect(p.mount).toHaveBeenCalledOnce();
   expect(p.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'html' }));
 });
 it('HTML with a Chrome-assigned command leaves keydown to Chrome', async () => {
@@ -80,7 +82,7 @@ it('an already mounted HTML overlay cannot be reopened by the orphaned keydown l
   const { bus } = await import('../components/bus');
   vi.mocked(bus.emit).mockClear();
   const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
-  const p = await load('text/html'); p.press(); await Promise.resolve();
+  const p = await load('text/html'); p.press(); await flush();
   expect(p.mount).toHaveBeenCalledOnce();
   now.mockReturnValue(1500); p.orphan();
   expect(p.press().defaultPrevented).toBe(false);
