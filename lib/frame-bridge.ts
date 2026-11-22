@@ -383,7 +383,7 @@ function handleProbeMessage(ev: MessageEvent) {
 /** Child-frame worker: answer extract / locate / ping / probe-ack. No UI. */
 export function installFrameWorker() {
   window.addEventListener('message', handleProbeMessage);
-  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  const onMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (msg, _sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return false;
     if (msg.type === FRAME_EXTRACT) {
       try {
@@ -433,12 +433,19 @@ export function installFrameWorker() {
       return true;
     }
     return false;
-  });
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
 
   try { chrome.runtime.sendMessage({ type: FRAME_HELLO }); } catch { /* */ }
-  window.addEventListener('pagehide', () => {
+  const pagehide = () => {
     try { chrome.runtime.sendMessage({ type: FRAME_BYE }); } catch { /* */ }
-  });
+  };
+  window.addEventListener('pagehide', pagehide);
+  return () => {
+    chrome.runtime.onMessage.removeListener(onMessage);
+    window.removeEventListener('message', handleProbeMessage);
+    window.removeEventListener('pagehide', pagehide);
+  };
 }
 
 export type { FrameSource, FrameNotice, MergedPage };

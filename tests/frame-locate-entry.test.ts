@@ -103,6 +103,21 @@ describe('premise: extract signature must match locate signature (worker entry)'
     vi.restoreAllMocks();
   });
 
+  it('removes the prior frame listener before a replacement content context initializes', () => {
+    const { document, window } = makeDoc(articleBody('Lifecycle'));
+    vi.stubGlobal('document', document);
+    vi.stubGlobal('window', window);
+    const dispose = installFrameWorker();
+    expect(chromeMock.listeners).toHaveLength(1);
+    dispose();
+    expect(chromeMock.listeners).toHaveLength(0);
+    const disposeReplacement = installFrameWorker();
+    expect(chromeMock.listeners).toHaveLength(1);
+    disposeReplacement();
+    expect(chromeMock.listeners).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
   it('FRAME_EXTRACT → FRAME_LOCATE succeeds on unchanged DOM; fails stale after real content change', async () => {
     const { document, window } = makeDoc(articleBody('MoE'));
     (globalThis as any).document = document;
