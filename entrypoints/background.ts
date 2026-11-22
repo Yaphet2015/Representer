@@ -24,9 +24,9 @@ export default defineBackground(() => {
     sendMessage: (tabId, msg, opts) => chrome.tabs.sendMessage(tabId, msg, opts),
   });
 
-  const toggle = async (tabId?: number) => {
+  const toggle = async (tabId?: number, documentId?: string) => {
     if (tabId == null) return;
-    try { await chrome.tabs.sendMessage(tabId, TOGGLE); } catch { /* no content script */ }
+    await chrome.tabs.sendMessage(tabId, TOGGLE, documentId ? { documentId } : { frameId: 0 });
   };
   // Toolbar and the existing toggle-overlay command share one router in installPdfEntry
   // (PDF → side panel, webpage → overlay). Do not query or await before sidePanel.open().

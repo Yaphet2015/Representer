@@ -28,7 +28,7 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     default_locale: 'en',
     ...(DIAG ? { version_name: `${version} ${BUILD}` } : {}),
-    permissions: ['storage', 'sidePanel'],
+    permissions: ['storage', 'sidePanel', 'scripting'],
     host_permissions: ['<all_urls>'],
     commands: {
       'toggle-overlay': {

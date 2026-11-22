@@ -1,3 +1,4 @@
+import { claimContentInitialization } from '@/lib/content-init';
 import { PDF_DOCUMENT, PDF_PING } from '@/lib/pdf-contract';
 import ReactDOM from 'react-dom/client';
 import { App } from '@/components/App';
@@ -41,9 +42,11 @@ function pinOnTop(host: HTMLElement) {
   };
   ensureLast();
   raise();
-  new MutationObserver(ensureLast).observe(document.documentElement, { childList: true });
+  const observer = new MutationObserver(ensureLast);
+  observer.observe(document.documentElement, { childList: true });
   // Pages can open their own top-layer dialogs/popovers later; re-raise when ours is toggled open.
-  bus.on('toggle', () => setTimeout(raise, 0));
+  const off = bus.on('toggle', () => setTimeout(raise, 0));
+  return () => { observer.disconnect(); off(); };
 }
 
 /**
@@ -65,18 +68,22 @@ export default defineContentScript({
   // No cssInjectionMode: 'ui': that makes WXT fetch() content.css at first mount and, if the fetch fails, mount an
   // unstyled panel. The stylesheet is bundled instead (PANEL_CSS) and handed to the shadow root directly.
   async main(ctx) {
-    installFrameWorker();
+    if (!claimContentInitialization((cleanup) => ctx.onInvalidated(cleanup))) return;
+    ctx.onInvalidated(installFrameWorker());
     const isTop = window === window.top;
     if (!isTop) return;
     const kind = document.contentType === 'application/pdf' ? 'pdf' : 'html';
-    chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-      if (msg?.type === PDF_PING) { reply({ kind }); return false; }
-    });
+    const ping = (msg: unknown, _sender: chrome.runtime.MessageSender, reply: (response: unknown) => void) => {
+      if (msg && typeof msg === 'object' && 'type' in msg && msg.type === PDF_PING) { reply({ kind }); return false; }
+    };
+    chrome.runtime.onMessage.addListener(ping);
+    ctx.onInvalidated(() => chrome.runtime.onMessage.removeListener(ping));
     void chrome.runtime.sendMessage({ type: PDF_DOCUMENT, kind }).catch(() => {});
     if (import.meta.env.VITE_RP_DIAG === '1') installDiag(); // dev diagnostics build only
 
     let ui: Awaited<ReturnType<typeof createShadowRootUi>> | null = null;
     let last = 0;
+    let disposeOverlay = () => {};
     const toggle = () => {
       if (Date.now() - last < 200) return; // de-dupe command + keydown fallback
       last = Date.now();
@@ -90,18 +97,28 @@ export default defineContentScript({
               host.style.setProperty('zoom', String(1 / (z || 1)), 'important');
             };
             fixZoom();
-            pinOnTop(host);
+            const unpin = pinOnTop(host);
+            disposeOverlay = () => { unpin(); window.removeEventListener('resize', fixZoom); };
             noTranslate(host, container, _shadow);
             window.addEventListener('resize', fixZoom);
             const root = ReactDOM.createRoot(container);
             root.render(<LangProvider><App /></LangProvider>);
             return root;
           },
-          onRemove(root) { root?.unmount(); },
-        }).then((u) => { ui = u; u.mount(); });
+          onRemove(root) { disposeOverlay(); root?.unmount(); },
+        }).then((u) => {
+          if (ctx.isInvalid) { u.remove(); return; }
+          ui = u; u.mount();
+        });
       } else bus.emit('toggle');
     };
-    chrome.runtime.onMessage.addListener((msg) => { if (msg?.type === TOGGLE.type) toggle(); });
+    const onToggle = (msg: unknown, _sender: chrome.runtime.MessageSender, reply: (response: unknown) => void) => {
+      if (msg && typeof msg === 'object' && 'type' in msg && msg.type === TOGGLE.type) {
+        toggle(); reply({ ok: true }); return false;
+      }
+    };
+    chrome.runtime.onMessage.addListener(onToggle);
+    ctx.onInvalidated(() => chrome.runtime.onMessage.removeListener(onToggle));
 
     // Fallback: if Chrome didn't assign the Ctrl+E / ⌘E command (conflict, or the user cleared it),
     // handle the key on the page ourselves. Not used when the user assigned a different shortcut.
@@ -109,12 +126,12 @@ export default defineContentScript({
     let fallback = false;
     const refresh = () => rpc('getShortcut', {}).then((r) => { if (r.ok) fallback = !r.shortcut; });
     refresh();
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+    ctx.addEventListener(document, 'visibilitychange', () => { if (!document.hidden) refresh(); });
     window.addEventListener('keydown', (e) => {
       if (!fallback || e.repeat || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'e') return;
       if (!(isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
       e.preventDefault(); e.stopPropagation();
       toggle();
-    }, true);
+    }, { capture: true, signal: ctx.signal });
   },
 });
