@@ -45,3 +45,18 @@ For any future native-key failure, use the diagnostic package and preserve one a
 - two accepted toggle sources with toggle-existing: a real duplicate is established.
 
 Acceptance at 13:33 SGT: f63e4b3 diagnostic HTML passed with a native Computer keystroke and parent screenshot; f63e4b3 production HTML/PDF native GUI acceptance remains pending. c66eec8 PDF acceptance remains a fact for that frozen package. This correction changes documentation only: no production-code repair, package rebuild, merge or release follows from the invalid page-simulated failure report. The original frozen f63e4b3 production package and its SHA256 remain valid.
+
+
+## Final f63e4b3 production acceptance — parent screenshots
+
+The parent confirmed both production cases on 2026-11-22 using native **Computer desktop** Ctrl+E, not browser/page-simulated keyboard input. Only production extension ID `lkbgacdopekcdgkpikjhkdebloghjmdg` was enabled; diagnostics and all other versions were off. The custom command was Ctrl+E / In Chrome; the built-in action shortcut was NotSet. Neither case included a toolbar comparison action.
+
+- **13:36 SGT — HTML passed:** a genuinely new `https://example.com` document, click in the body, one Ctrl+E, wait five seconds. The parent screenshot confirmed only the right-hand rounded webpage overlay, with no native Chrome side panel. Evidence: `/tmp/computer-use/d22aa74b-8fdf-45ff-aaac-7f131c1e52a1.6f9c6504-9417-4b67-bfdf-d74f68bc3144.webp`.
+- **13:38 SGT — PDF passed:** a new tab at the original Lilly URL, one canvas Ctrl+E, wait ten seconds. The parent screenshot confirmed only the native Chrome side panel with the Representer header, no webpage overlay; the panel remained open and read **59 pages / 4,443,082 bytes / 66,609 characters**. Evidence: `/tmp/computer-use/d22aa74b-8fdf-45ff-aaac-7f131c1e52a1.092f9f1b-aafc-4cb5-ae53-5a32930b34a4.webp`.
+
+These results supersede the earlier pending **f63e4b3 production HTML/PDF** status; the earlier entries remain as the chronology. No model API key was configured, and the summary reported `Summary failed: No API key`, so model summarization is **not** accepted by this run. This is Linux Ctrl+E acceptance, not macOS Cmd+E or Yaphet's own-device acceptance.
+
+This update is documentation only: no code change, rebuild, merge or release. The frozen f63e4b3 production package remains unchanged:
+
+- `/workspace/artifacts/pr45/f63e4b3d7b2687c3e83e978bfcaa016e0a15fe6f/production/representer-pr45-f63e4b3-production.zip`
+- SHA256: `cb17d4c463770c962c29f55bd2ad9d28ee44d58dfc59fed39ea50887ded745d0`.
