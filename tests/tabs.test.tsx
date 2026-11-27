@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Capsule, CloseButton } from '../components/Capsule';
+import { Capsule, CloseButton, SettingsButton, SettingsLead } from '../components/Capsule';
 import { LangProvider } from '../components/i18n';
 import { SessionChips } from '../components/SessionChips';
 import { nextTab } from '../lib/capsule';
@@ -96,6 +96,47 @@ describe('floating capsule', () => {
     expect(app).not.toMatch(/data-top-row|setMin|minimize/);
     expect(app).toContain('dir="ltr"');
     expect(Object.keys(messages('zh-CN'))).not.toContain('minimize');
+  });
+});
+
+describe('settings icon in the scrolling lead', () => {
+  it('is a quiet control named for settings, not a glass button, and is not in the tab list', () => {
+    expect(cap()).not.toContain('data-settings');
+    const html = render(<SettingsButton />);
+    expect(html).toContain(`aria-label="${messages('en').settingsShort}"`);
+    expect(html).toContain(`title="${messages('en').settingsShort}"`);
+    expect(html).toContain('data-settings');
+    expect(html).toContain('text-ink-3');
+    expect(html).toContain('size-3.5');
+    expect(html).not.toContain('rp-glass');
+    expect(html).not.toMatch(/\bfixed\b|\bsticky\b|\babsolute\b/);
+  });
+
+  it('sits in normal flow so it can scroll away; never fixed or sticky', () => {
+    const html = render(<SettingsLead className="-mt-11 h-11" />);
+    expect(html).toContain('data-settings-lead');
+    expect(html).toContain('-mt-11 h-11');
+    expect(html).toContain('data-settings');
+    expect(html).not.toMatch(/\bfixed\b|\bsticky\b|\babsolute\b/);
+  });
+
+  it('lives in the overlay scroller, not in the floating capsule or close row, and does not change the PDF settings text', () => {
+    const app = readFileSync('components/App.tsx', 'utf8');
+    const scroll = app.slice(app.indexOf('rp-scroll h-full overflow-y-auto pt-11'), app.indexOf('absolute left-1/2 top-1.5'));
+    expect(scroll).toContain('<SettingsLead className="-mt-11 h-11" />');
+    expect(scroll).toContain('overflow-y-auto');
+    const cap = app.slice(app.indexOf('absolute left-1/2 top-1.5'), app.indexOf('CloseButton'));
+    expect(cap).not.toContain('SettingsLead');
+    expect(app).toContain('absolute right-2 top-1.5');
+    const chat = readFileSync('components/Chat.tsx', 'utf8');
+    expect(chat).toContain('{!state && <SettingsLead className="-mx-4 -mt-14 h-14" />}');
+    const pdf = readFileSync('components/pdf/PdfPanel.tsx', 'utf8');
+    expect(pdf).toContain('openOptionsPage');
+    expect(pdf).toContain('Settings</Button>');
+    expect(pdf).not.toContain('SettingsLead');
+    const capsule = readFileSync('components/Capsule.tsx', 'utf8');
+    expect(capsule).toContain("rpc('openOptions'");
+    expect(capsule).not.toMatch(/void chrome\.runtime\.openOptionsPage/);
   });
 });
 

@@ -21,6 +21,8 @@ export interface Api {
   newSession: { req: { url: string }; res: { state: SessionsState; id: string } };
   closeSession: { req: { url: string; id: string }; res: { state: SessionsState } };
   setActiveSession: { req: { url: string; id: string }; res: { state: SessionsState } };
+  /** Content scripts cannot call openOptionsPage; the worker opens the options page. */
+  openOptions: { req: {}; res: {} };
 }
 export type MsgType = keyof Api;
 export type Request = { [K in MsgType]: { type: K } & Api[K]['req'] }[MsgType];
