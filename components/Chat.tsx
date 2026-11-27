@@ -10,6 +10,7 @@ import { Composer } from './Composer';
 import { Markdown } from './Markdown';
 import { CopyButton } from './CopyButton';
 import { messageMarkdown } from '@/lib/copy';
+import { SettingsLead } from './Capsule';
 import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 
 
@@ -137,6 +138,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
       {state && <div className="mt-10 shrink-0"><SessionChips state={state} onSwitch={switchTo} onClose={closeIt} onNew={() => { void openNew(); }} disabled={busy || disabled} /></div>}
       {/* without side chats the messages start under the floating capsule and scroll beneath it; the bottom padding lets the last message scroll clear of the floating composer */}
       <div ref={scrollRef} className={`rp-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 ${state ? 'pt-3' : 'pt-14'} pb-[150px]`}>
+        {!state && <SettingsLead className="-mx-4 -mt-14 h-14" />}
         {!messages.length && (
           <p className="pt-8 text-center text-[13px] leading-relaxed text-ink-3">
             {sid === MAIN_ID ? t.emptyMain : state && getSession(state, sid)?.parent ? t.emptySide : t.emptyChat}<br />{!hasSummary && <><span data-no-summary-note>{t.noSummaryChat}</span><br /></>}<span data-quick-hint>{t.quickHintPre}<span className="text-ink-2">+</span>{t.quickHintMid}<span className="text-ink-2">/</span>{t.quickHintPost}</span>

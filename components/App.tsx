@@ -11,7 +11,7 @@ import { Chat } from './Chat';
 import { Overview, pageHost } from './Overview';
 import { liveLocator } from './live-locator';
 import { ErrorView, NoOverview } from './EmptyStates';
-import { Capsule, CloseButton } from './Capsule';
+import { Capsule, CloseButton, SettingsLead } from './Capsule';
 import { Skeleton } from './Skeleton';
 import { rpc } from '@/lib/messages';
 import { streamSummary } from '@/lib/summary-client';
@@ -222,6 +222,7 @@ export function App() {
           <div className="relative z-[1] min-h-0 flex-1">
             {isOverview ? (
               <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
+                <SettingsLead className="-mt-11 h-11" />
                 {loading && partial && (
                   <Overview locator={liveLocator} streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
                     <Button variant="secondary" size="xs" data-cancel onClick={cancel}>{t.cancelSummary}</Button>

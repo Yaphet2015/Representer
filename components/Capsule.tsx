@@ -4,7 +4,7 @@ import { useRef, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/cn';
 import { nextTab, TABS, type Tab } from '@/lib/capsule';
 import { useT } from './i18n';
-import { ChatBubble, Close, Sparkle } from './Icons';
+import { ChatBubble, Close, Settings, Sparkle } from './Icons';
 import { LoaderGrid } from './bui/LoadingState';
 
 export function Capsule({ value, onChange, collapsed = false, summarizing = false }: { value: Tab; onChange: (t: Tab) => void; collapsed?: boolean; /** the overview is being written: flowing border + pixel icon */ summarizing?: boolean }) {
@@ -60,3 +60,23 @@ export function CloseButton({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Quiet settings control at the top of the scrolling content (not in the floating capsule row). */
+export function SettingsButton({ onOpen }: { onOpen?: () => void }) {
+  const t = useT();
+  return (
+    <button type="button" data-settings onClick={onOpen ?? (() => { void chrome.runtime.openOptionsPage(); })}
+      aria-label={t.settingsShort} title={t.settingsShort}
+      className="grid size-8 place-items-center rounded-[10px] text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink-2 active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
+      <Settings className="size-3.5" />
+    </button>
+  );
+}
+
+/** Sits in the scroller's top padding so it lines up with the capsule, then scrolls away with the page. */
+export function SettingsLead({ className, onOpen }: { className?: string; onOpen?: () => void }) {
+  return (
+    <div data-settings-lead className={cn('flex shrink-0 items-center px-2.5', className)}>
+      <SettingsButton onOpen={onOpen} />
+    </div>
+  );
+}
