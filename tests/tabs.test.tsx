@@ -134,6 +134,9 @@ describe('settings icon in the scrolling lead', () => {
     expect(pdf).toContain('openOptionsPage');
     expect(pdf).toContain('Settings</Button>');
     expect(pdf).not.toContain('SettingsLead');
+    const capsule = readFileSync('components/Capsule.tsx', 'utf8');
+    expect(capsule).toContain("rpc('openOptions'");
+    expect(capsule).not.toMatch(/void chrome\.runtime\.openOptionsPage/);
   });
 });
 

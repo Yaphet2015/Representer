@@ -59,6 +59,7 @@ export default defineBackground(() => {
     },
     closeSession: async ({ url, id }) => ({ state: await cache.updateSessions(url, (s) => closeSession(s, id)) }),
     setActiveSession: async ({ url, id }) => ({ state: await cache.updateSessions(url, (s) => setActive(s, id)) }),
+    openOptions: async () => { await chrome.runtime.openOptionsPage(); return {}; },
   };
 
   chrome.runtime.onMessage.addListener((msg: any, sender, reply) => {

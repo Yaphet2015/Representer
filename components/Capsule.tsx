@@ -2,6 +2,7 @@
    Built from Beautiful UI tokens. Collapses to its two icons while reading down; see lib/capsule.ts for when. */
 import { useRef, type KeyboardEvent } from 'react';
 import { cn } from '@/lib/cn';
+import { rpc } from '@/lib/messages';
 import { nextTab, TABS, type Tab } from '@/lib/capsule';
 import { useT } from './i18n';
 import { ChatBubble, Close, Settings, Sparkle } from './Icons';
@@ -64,7 +65,7 @@ export function CloseButton({ onClose }: { onClose: () => void }) {
 export function SettingsButton({ onOpen }: { onOpen?: () => void }) {
   const t = useT();
   return (
-    <button type="button" data-settings onClick={onOpen ?? (() => { void chrome.runtime.openOptionsPage(); })}
+    <button type="button" data-settings onClick={onOpen ?? (() => { void rpc('openOptions', {}); })}
       aria-label={t.settingsShort} title={t.settingsShort}
       className="grid size-8 place-items-center rounded-[10px] text-ink-3 transition-colors duration-150 hover:bg-hover hover:text-ink-2 active:scale-[.97] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1">
       <Settings className="size-3.5" />
