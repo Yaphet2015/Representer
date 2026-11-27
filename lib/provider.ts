@@ -4,7 +4,7 @@ import type { Usage } from '@earendil-works/pi-ai';
 import { defineExtension } from '@earendil-works/pi-durable';
 import { OutputTruncated, MAX_OUTPUT_CEILING, maxOutputFor, isMaxTokensError, SAFE_MAX_OUTPUT } from './budget';
 import { OVERVIEW_INLINE_MAX, OverviewIncomplete, runOverviewAgent, ToolsUnsupported, type OverviewStatus } from './overview-agent';
-import { extractNotes, notesInput } from './chunked-overview';
+import { extractNotes, notesInput, sectionPlan } from './chunked-overview';
 import { AbortError } from './abort';
 import { mockOverviewAgent, mockStream, useMock } from './mock';
 import { summarizeWithSteps } from './steps';
@@ -53,15 +53,17 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         // a long page: its chunks are read in parallel first (reasoning off; only progress is shown), then the agent
         // writes the overview from their notes
         let input: string | undefined;
+        let minSections: number | undefined;
         if (content.length > OVERVIEW_INLINE_MAX) {
           const { notes, chunks } = await extractNotes({
             title, content, replyLanguage: messages(lang).replyLanguage, signal, onProgress: (read, total) => more.onStatus?.({ read, total }),
           }, { extract: (instructions, history, input, sig) => runTurn(s, instructions, history, input, undefined, sig, null, undefined, { reasoning: 'off', maxTokens: EXTRACT_MAX_OUTPUT, onUsage: more.onUsage }) });
           input = notesInput(title, url, content, notes, chunks);
+          minSections = sectionPlan(chunks.length, { chunks }).groups.length;
           more.onStatus?.(null);
         }
         return await runOverviewAgent({
-          instructions: overviewAgentInstructions(lang, s.systemPrompt), title, url, content, model: s.model, signal, input,
+          instructions: overviewAgentInstructions(lang, s.systemPrompt, { long: !!input }), title, url, content, model: s.model, signal, input, minSections,
           onPartial: more.onPartial, onStatus: more.onStatus, visual,
         }, { turn: (instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs) =>
           runVisualTurn(s, visual, more, instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs, onThinking) });

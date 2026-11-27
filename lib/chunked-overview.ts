@@ -67,13 +67,14 @@ export function batchChunks(chunks: Chunk[], maxCalls = MAX_EXTRACT_CALLS): Chun
 }
 
 const rangeOf = (c: Chunk) => `${c.ids[0]}-${c.ids.at(-1)}`;
-/** points asked for per chunk: about one per 3,500 characters, 2-4 */
-export const pointsFor = (c: Chunk) => Math.max(2, Math.min(4, Math.round(c.chars / 3500)));
+/** points asked for per chunk: about one per 2,000 characters, 2-8, so a dense part can keep named items */
+export const pointsFor = (c: Chunk) => Math.max(2, Math.min(8, Math.round(c.chars / 2000)));
 
 export function extractInstructions(replyLanguage: string): string {
   return `You read one part of a long web page and note its key points, so that an overview of the whole page can be written from the notes alone.
 Reply with ONLY a JSON object, no prose: {"parts": [{"part": number, "points": [{"anchor": "p12", "text": string}], "quote": {"anchor": "p15", "text": string} or null}]}
 - One entry per part you are given, with its number. Each point is one concrete fact, claim, step, number or conclusion from that part, under ${NOTE_MAX} characters, written in ${replyLanguage}.
+- If the part names several distinct items (benchmarks, case studies, steps, works), prefer one point per item rather than merging them.
 - "anchor" is the id of the block the point comes from (the [pN] at the block's start). Only ids inside that part.
 - Spread the points over the whole part, from its beginning to its end, in page order; do not skip its second half.
 - "quote": optional, one striking sentence copied word for word from one block of the part (original language, under 200 characters), or null.
@@ -198,19 +199,55 @@ export async function extractNotes(o: { title: string; content: string; replyLan
   } finally { o.signal?.removeEventListener('abort', stop); }
 }
 
-/** Consecutive parts per section, so that one bullet per part (or per few parts) fits the summary's limits. */
-export function sectionPlan(total: number): { span: number; groups: [number, number][] } {
-  const span = Math.max(1, Math.ceil(total / 48)); // parts per bullet: 8 sections x 6 bullets
-  const sections = Math.min(8, Math.max(Math.min(4, total), Math.ceil(total / span / 5)));
-  const groups: [number, number][] = [];
-  for (let k = 0; k < sections; k++) {
-    const a = Math.round((k * total) / sections), b = Math.round(((k + 1) * total) / sections) - 1;
-    if (b >= a) groups.push([a, b]);
+/**
+ * Consecutive content parts per section. One section per part up to MAX_PLAN_SECTIONS; only group
+ * when there are more parts than that. Trailing references / closing remarks are not a section.
+ * Must stay <= MAX_SECTIONS in lib/overview-agent.ts.
+ */
+export const MAX_PLAN_SECTIONS = 10;
+
+const APPENDIX_HEADING = /^(?:#{1,6}\s+)?(?:references|bibliography|footnotes|further reading|works cited|acknowledgements?|参考文献|脚注|延伸阅读)\s*[:：]?$/i;
+const APPENDIX_SIGN_OFF = /\b(reach out|get in touch|thanks for reading|if you have feedback|comments? are welcome|did i miss|subscribe|follow me)\b/i;
+const CITATION = /\b(https?:\/\/|doi:|arxiv:|accessed|preprint)\b/gi;
+
+/** A part that is almost only references, bibliography, or a short closing remark. */
+export function isAppendixChunk(chunk: Chunk): boolean {
+  const text = chunk.text;
+  const heading = text.split('\n').find((line) => APPENDIX_HEADING.test(line.replace(MARKER_RE, '').trim()));
+  if (heading) {
+    const at = text.indexOf(heading);
+    if (at >= 0 && (at <= text.length * 0.35 || text.length - at >= text.length * 0.7)) return true;
   }
-  return { span, groups };
+  if (text.length > 4000) return false;
+  const citations = text.match(CITATION)?.length ?? 0;
+  if (citations >= Math.max(3, Math.floor(chunk.ids.length * 0.5))) return true;
+  const body = text.replace(MARKER_RE, '');
+  return APPENDIX_SIGN_OFF.test(body) && (!heading ? citations >= 1 || body.length < 1200 : true);
 }
 
-/** The aggregation agent's first message: the notes of every part (grouped into the planned sections), not the page. */
+/** Trailing appendix parts (never all parts). */
+export function trailingAppendixIndices(chunks: Chunk[]): number[] {
+  const out: number[] = [];
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    if (!isAppendixChunk(chunks[i]!)) break;
+    out.unshift(i);
+  }
+  return out.length >= chunks.length ? [] : out;
+}
+
+export function sectionPlan(total: number, opts?: { chunks?: Chunk[] }): { span: number; groups: [number, number][]; appendix: number[] } {
+  const appendix = opts?.chunks?.length === total ? trailingAppendixIndices(opts.chunks) : [];
+  const usable = Math.max(1, total - appendix.length);
+  const sections = Math.min(MAX_PLAN_SECTIONS, usable);
+  const span = Math.max(1, Math.ceil(usable / (sections * 6)));
+  const groups: [number, number][] = [];
+  for (let k = 0; k < sections; k++) {
+    const a = Math.round((k * usable) / sections), b = Math.round(((k + 1) * usable) / sections) - 1;
+    if (b >= a) groups.push([a, b]);
+  }
+  return { span, groups, appendix };
+}
+
 /** A part's lead note: the one whose block is nearest the middle of the part (in characters), so the bullet built on it points well inside the part. */
 export function leadOf(n: ChunkNote, chunk?: Chunk): NotePoint {
   if (!chunk) return n.points[Math.floor((n.points.length - 1) / 2)]!;
@@ -219,20 +256,26 @@ export function leadOf(n: ChunkNote, chunk?: Chunk): NotePoint {
   return n.points.reduce((a, b) => (at(b) < at(a) ? b : a), n.points[0]!);
 }
 
+/** The aggregation agent's first message: the notes of every part (grouped into the planned sections), not the page. */
 export function notesInput(title: string, url: string, content: string, notes: ChunkNote[], chunks?: Chunk[]): string {
   const total = notes.length;
-  const { span, groups } = sectionPlan(total);
+  const { groups, appendix } = sectionPlan(total, { chunks });
   const lead = (n: ChunkNote) => leadOf(n, chunks?.[n.chunk]);
   const part = (n: ChunkNote) => {
     const l = n.points.length ? lead(n) : null;
     return `<part ${n.chunk + 1}: ${n.range}${n.fallback ? ' (not read: block openings only)' : ''}>\n${l ? `★ ${l.anchor}: ${l.text}\n` : ''}${n.points.filter((p) => p !== l).map((p) => `- ${p.anchor}: ${p.text}`).join('\n')}${n.quote ? `\nquote candidate (${n.quote.anchor}, verbatim): ${n.quote.text}` : ''}`;
   };
-  const body = groups.map(([a, b], k) => `=== Section ${k + 1}: parts ${a + 1}-${b + 1}; bullet anchors: ${notes.slice(a, b + 1).filter((n, i) => i % span === 0 && n.points.length).map((n) => lead(n).anchor).join(', ')} ===\n${notes.slice(a, b + 1).map(part).join('\n')}`).join('\n\n');
-  return `Title: ${title}\nURL: ${url}\n\nThe page is ${content.length} characters, too long to include. It was read in ${total} parts of about ${CHUNK_CHARS} characters; below are the notes of every part, with the page's block ids, already grouped into ${groups.length} sections in page order.
+  const anchors = (from: number, to: number) => notes.slice(from, to + 1).filter((n) => n.points.length).flatMap((n) => n.points.map((p) => p.anchor)).filter((a, i, all) => all.indexOf(a) === i).slice(0, 12).join(', ');
+  const body = groups.map(([a, b], k) => `=== Section ${k + 1}: parts ${a + 1}-${b + 1}; note anchors: ${anchors(a, b)} ===\n${notes.slice(a, b + 1).map(part).join('\n')}`).join('\n\n');
+  const appendixBlock = appendix.length
+    ? `\n\n=== References and closing (parts ${appendix[0]! + 1}-${appendix.at(-1)! + 1}; not a section — do not write one for this) ===\n${appendix.map((i) => part(notes[i]!)).join('\n')}`
+    : '';
+  return `Title: ${title}\nURL: ${url}\n\nThe page is ${content.length} characters, too long to include. It was read in ${total} parts of about ${CHUNK_CHARS} characters; below are the notes of every part, with the page's block ids, already grouped into ${groups.length} sections in page order${appendix.length ? ' (references and closing remarks are listed last and are not a section)' : ''}.
 Write the overview from these notes, covering the whole page:
-- Write exactly these ${groups.length} sections, in this order (give each a title from its content; its anchor is the ★ id of its first part).
-- A section's bullets are the ★ lead notes of its parts${span > 1 ? ` (one bullet per ${span} consecutive parts: the ★ of the first of them)` : ', one bullet per part'}, in order, each with its ★ anchor. Rewrite a lead into a clear point and add details from the other notes of the same part; do not move a part's content into another bullet. The number of bullets in a section equals its number of ${span > 1 ? 'part groups' : 'parts'}.
+- Write these ${groups.length} sections, in this order (give each a title from its content; its anchor is the ★ id of its first part).${groups.length > 6 ? ' More than 6 sections is expected for this page.' : ''}
+- A section's bullets should cover the distinct claims, findings and named items in its notes (benchmarks, case studies, steps, numbers), in page order, each with an anchor from those notes. Use the non-★ points, not only the ★ lead. Write 2-6 bullets per section: one bullet per distinct item when the notes name several, rather than one bullet per part or merging most items away. If there are more named items than 6, keep them compact and use 6 bullets; do not drop most of them to stay brief.
+- Do not invent a section from references, bibliography, footnotes or a short closing remark.
 - Anchors are the block ids in the notes. A quote, if any, must be one of the verbatim quote candidates with its id.
 
-${body}`;
+${body}${appendixBlock}`;
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { batchChunks, checkNotes, chunkContent, extractNotes, fallbackNotes, leadOf, notesInput, pool, sectionPlan, type ChunkNote } from '../lib/chunked-overview';
+import { batchChunks, checkNotes, chunkContent, extractNotes, fallbackNotes, isAppendixChunk, leadOf, MAX_PLAN_SECTIONS, notesInput, pool, pointsFor, sectionPlan, trailingAppendixIndices, type ChunkNote } from '../lib/chunked-overview';
+import { MAX_SECTIONS } from '../lib/overview-agent';
+import { overviewAgentInstructions } from '../lib/prompts';
 import { createCache, pageHash } from '../lib/cache';
 import { memKV } from '../lib/storage';
 
@@ -76,10 +78,13 @@ describe('pool', () => it('keeps job order', async () => {
 }));
 
 describe('aggregation input', () => {
-  it('plans ≤8 sections covering every part, with ★ leads from the middle of each part', () => {
+  it('plans one section per part up to the cap, covering every part when none are appendix', () => {
+    expect(MAX_PLAN_SECTIONS).toBeLessThanOrEqual(MAX_SECTIONS);
+    expect(sectionPlan(6).groups).toEqual([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]);
     for (const n of [1, 5, 14, 38, 67]) {
-      const { groups } = sectionPlan(n);
-      expect(groups.length).toBeLessThanOrEqual(8);
+      const { groups, appendix } = sectionPlan(n);
+      expect(appendix).toEqual([]);
+      expect(groups.length).toBe(Math.min(MAX_PLAN_SECTIONS, n));
       expect(groups[0]![0]).toBe(0);
       expect(groups.at(-1)![1]).toBe(n - 1);
     }
@@ -91,7 +96,58 @@ describe('aggregation input', () => {
     const text = notesInput('T', 'u', 'x'.repeat(99), notes, chunks);
     expect(text).toContain(`★ ${lead.anchor}`);
     expect(text).not.toContain('[p1] block');
-    expect((text.match(/=== Section/g) ?? []).length).toBe(sectionPlan(chunks.length).groups.length);
+    expect((text.match(/=== Section/g) ?? []).length).toBe(sectionPlan(chunks.length, { chunks }).groups.length);
+  });
+
+  it('does not pinch a 6-part page into 4 sections or one bullet per part, and keeps trailing references out of the plan', () => {
+    const topics = Array.from({ length: 5 }, (_, c) =>
+      `[p${c + 1}] ## Topic ${c + 1}: Eval family ${c + 1}\n\n` + `NamedEval${c + 1} found that graders failed on ${c + 3} tasks. `.repeat(280));
+    const refs = [
+      '[p6] Did I miss your favourite benchmark? Please reach out!',
+      '## [p7] References',
+      ...Array.from({ length: 8 }, (_, i) => `[p${8 + i}] Author. “Paper ${i}.” arXiv:2500.1000${i}. Preprint, arXiv, 2026. https://doi.org/10.48550/arXiv.2500.1000${i}. Accessed November 19, 2026.`),
+    ].join('\n\n');
+    const content = [...topics, refs].join('\n\n');
+    const chunks = chunkContent(content);
+    expect(chunks.length).toBe(6);
+    expect(isAppendixChunk(chunks[5]!)).toBe(true);
+    expect(chunks.slice(0, 5).every((c) => !isAppendixChunk(c))).toBe(true);
+    expect(trailingAppendixIndices(chunks)).toEqual([5]);
+    const { groups, appendix } = sectionPlan(chunks.length, { chunks });
+    expect(appendix).toEqual([5]);
+    expect(groups.length).toBe(5);
+    expect(groups).toEqual([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]);
+    const notes: ChunkNote[] = chunks.map((c) => ({
+      chunk: c.index, range: `${c.ids[0]}-${c.ids.at(-1)}`,
+      points: c.ids.slice(0, 3).map((a) => ({ anchor: a, text: `note ${a}` })),
+    }));
+    const text = notesInput('Lessons from 12 Evals', 'https://example.com/evals', content, notes, chunks);
+    expect(text).not.toMatch(/Write exactly these \d+ sections/);
+    expect(text).not.toMatch(/, one bullet per part/);
+    expect(text).not.toMatch(/bullets are the ★ lead notes/);
+    expect(text).not.toMatch(/The number of bullets in a section equals/);
+    expect(text).toMatch(/Write these 5 sections/);
+    expect(text).toMatch(/2-6 bullets per section/);
+    expect(text).toMatch(/rather than one bullet per part/);
+    expect(text).toMatch(/not a section/);
+    expect((text.match(/=== Section/g) ?? []).length).toBe(5);
+    expect(text).toContain('References and closing (parts 6-6; not a section');
+    expect(pointsFor(chunks[0]!)).toBeGreaterThan(4);
+  });
+});
+
+describe('overview length instructions', () => {
+  it('keeps a compact shape for short pages and relaxes it only for long ones', () => {
+    const short = overviewAgentInstructions('zh-CN');
+    expect(short).toMatch(/3-5 sentences/);
+    expect(short).toMatch(/3-6 sections/);
+    expect(short).toMatch(/2-5 concise/);
+    expect(short).not.toMatch(/more than 6 is allowed/);
+    const long = overviewAgentInstructions('zh-CN', undefined, { long: true });
+    expect(long).toMatch(/3-8 sentences/);
+    expect(long).toMatch(/more than 6 is allowed/);
+    expect(long).toMatch(/2-6/);
+    expect(long).not.toMatch(/3-6 sections in page order/);
   });
 });
 

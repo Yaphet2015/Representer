@@ -30,11 +30,16 @@ const summaryBase = (lang: Lang, custom?: string) => `You summarize web pages. R
 ${summaryRules(lang, custom)}`;
 
 /** The overview agent writes the same summary through tools instead of one JSON reply (lib/overview-agent.ts). */
-export const overviewAgentInstructions = (lang: Lang, custom?: string) => withUserPrompt(`You summarize web pages by calling tools; never write the summary as a reply.
-Call submit_summary once with the whole summary: {overview: 3-5 sentences, sections: 3-6 sections in page order, each {title, anchor, icon (one of ${JSON.stringify(ICON_TYPES)}), bullets: 2-5 concise [{text, anchor}]}, quote: {text, anchor} or null}. The reader watches it appear as you write it, so start the call soon and keep your reasoning brief.
+export const overviewAgentInstructions = (lang: Lang, custom?: string, opts?: { long?: boolean }) => {
+  const shape = opts?.long
+    ? `{overview: 3-8 sentences, sections: follow the planned sections in the user message (more than 6 is allowed when planned, at most 10), each {title, anchor, icon (one of ${JSON.stringify(ICON_TYPES)}), bullets: 2-6 [{text, anchor}] covering distinct named items and findings}, quote: {text, anchor} or null}`
+    : `{overview: 3-5 sentences, sections: 3-6 sections in page order, each {title, anchor, icon (one of ${JSON.stringify(ICON_TYPES)}), bullets: 2-5 concise [{text, anchor}]}, quote: {text, anchor} or null}`;
+  return withUserPrompt(`You summarize web pages by calling tools; never write the summary as a reply.
+Call submit_summary once with the whole summary: ${shape}. The reader watches it appear as you write it, so start the call soon and keep your reasoning brief.
 If it answers with errors, the valid parts are already saved: fix only what it names with submit_overview({text}), add_section({title, anchor, icon, bullets}) (the same title replaces that section) or set_quote({text, anchor}), then call finish(). When it answers "Done", stop.
 Every tool checks its input. When it answers with an error, fix exactly what it says and call it again; do not repeat the same input.
 ${summaryRules(lang, custom)}`, custom, "Reminder: follow the user's instructions above, including any language they ask for. Only the tool calls are mandatory and override them.");
+};
 
 const summaryRules = (lang: Lang, custom?: string) => `Order sections and their bullets by where they appear on the page (ascending anchor number), not importance; put overall conclusions in "overview".
 For ordered content (steps, stages, timelines, numbered lists, chapters, rankings), preserve the original order and numbering without merging, skipping or swapping items; keep each step's points together.

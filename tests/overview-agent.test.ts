@@ -84,6 +84,24 @@ describe('overview draft tools', () => {
     expect(parseSummary(d.json(), content)).toEqual(viaTools);
     expect(viaTools!.sections.map((s) => s.title)).toEqual(['Early', 'Later']);
   });
+
+  it('does not invite an early finish before the planned section count, and reminds once if the plan is short', () => {
+    const d = createOverviewDraft(content, { minSections: 5 });
+    d.submitOverview({ text: 'A longer page needs more sections.' });
+    const secAt = (title: string, n: number) => ({ title, anchor: `p${n}`, icon: 'list' as const, bullets: [{ text: `b${n}`, anchor: `p${n}` }] });
+    expect(d.addSection(secAt('A', 2))).toMatchObject({ ok: true, message: expect.stringMatching(/Section 1 "A" saved\. Add the next section\.$/) });
+    expect(d.addSection(secAt('B', 4))).toMatchObject({ ok: true, message: expect.stringMatching(/Add the next section\.$/) });
+    expect(d.addSection(secAt('C', 6))).toMatchObject({ ok: true, message: expect.stringMatching(/Add the next section\.$/) });
+    expect(d.addSection(secAt('D', 8))).toMatchObject({ ok: true, message: expect.stringMatching(/Add the next section\.$/) });
+    expect(d.addSection(secAt('E', 10))).toMatchObject({ ok: true, message: expect.stringMatching(/only if the page has another distinct part/) });
+    const short = createOverviewDraft(content, { minSections: 5 });
+    short.submitOverview({ text: 'Too few sections.' });
+    short.addSection(secAt('A', 2));
+    short.addSection(secAt('B', 4));
+    short.addSection(secAt('C', 6));
+    expect(short.finish()).toMatchObject({ ok: false, error: expect.stringMatching(/plan has 5 sections; only 3 were added/) });
+    expect(short.finish().ok).toBe(true);
+  });
 });
 
 describe('submit_summary', () => {

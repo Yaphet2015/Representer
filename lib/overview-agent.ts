@@ -56,15 +56,16 @@ export function checkMarks(s: string): string | null {
 }
 
 /** The summary being built by the tools; every change is checked against the page first. */
-export function createOverviewDraft(content: string) {
+export function createOverviewDraft(content: string, opts?: { minSections?: number }) {
   const blocks = blockTexts(content);
   const ids = [...blocks.keys()];
   const range = ids.length ? `${ids[0]}-${ids.at(-1)}` : '';
   const steps = detectSteps(content);
+  const minSections = Math.max(0, Math.floor(opts?.minSections ?? 0));
   let overview = '';
   const sections: RawSection[] = [];
   let quote: { text: string; anchor: string } | null = null;
-  let finished = false, stepsChecked = false, quoteMisses = 0, rejectedChecked = false;
+  let finished = false, stepsChecked = false, quoteMisses = 0, rejectedChecked = false, planChecked = false;
   /** sections submit_summary rejected: finish reminds once if they were never re-added */
   let rejected: string[] = [];
 
@@ -80,8 +81,9 @@ export function createOverviewDraft(content: string) {
   const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const raw = () => ({ overview, sections, quote });
   /** what to do next, so the model neither stops early nor keeps polishing */
+  const readyToStop = Math.max(3, minSections);
   const next = () => sections.length >= MAX_SECTIONS ? 'That is the maximum: now set_quote (optional), then finish.'
-    : sections.length >= 3 ? `Add the next section only if the page has another distinct part (${MAX_SECTIONS} at most); otherwise set_quote (optional), then finish.`
+    : sections.length >= readyToStop ? `Add the next section only if the page has another distinct part (${MAX_SECTIONS} at most); otherwise set_quote (optional), then finish.`
     : 'Add the next section.';
 
   return {
@@ -107,7 +109,7 @@ export function createOverviewDraft(content: string) {
       const a = badAnchor(args?.anchor, 'section');
       if (a) return err(a);
       if (!Array.isArray(args?.bullets) || !args.bullets.length) return err('"bullets" must be a non-empty array of {text, anchor}');
-      if (args.bullets.length > MAX_BULLETS) return err(`${args.bullets.length} bullets is too many; keep 2-5`);
+      if (args.bullets.length > MAX_BULLETS) return err(`${args.bullets.length} bullets is too many; keep at most ${MAX_BULLETS}`);
       const bullets: RawBullet[] = [];
       for (const [i, b] of (args.bullets as unknown[]).entries()) {
         const bt = text(typeof b === 'string' ? b : (b as any)?.text);
@@ -176,11 +178,15 @@ export function createOverviewDraft(content: string) {
 
     finish(): ToolResult {
       if (!overview) return err('there is no overview yet; call submit_overview first');
-      if (!sections.length) return err('there are no sections yet; add 3-6 with add_section');
+      if (!sections.length) return err(`there are no sections yet; add ${minSections || '3-6'} with add_section`);
       const missingSecs = rejected.filter((t) => !sections.some((x) => x.title === t));
       if (missingSecs.length && !rejectedChecked) {
         rejectedChecked = true;
         return err(`these rejected sections were not added again: ${missingSecs.map((t) => `"${t}"`).join(', ')}. Fix and add them with add_section, or call finish again to leave them out`);
+      }
+      if (minSections && sections.length < minSections && !planChecked) {
+        planChecked = true;
+        return err(`the page plan has ${minSections} sections; only ${sections.length} were added. Add the remaining sections in page order, then call finish again`);
       }
       if (!stepsChecked && steps.length) {
         stepsChecked = true; // one reminder; a second finish is accepted as it is
@@ -294,6 +300,8 @@ export interface AgentOptions {
   onPartial?(s: Summary): void; onStatus?(s: OverviewStatus): void;
   /** limits for the whole run: model turns, tool calls and wall time */
   maxTurns?: number; maxToolCalls?: number; deadlineMs?: number;
+  /** planned section count on a long page: finish reminds once if fewer were added */
+  minSections?: number;
   /** the first message, when it is not the page itself (a long page's chunk notes) */
   input?: string;
   /** on-demand PDF page images; omit on ordinary webpages */
@@ -304,7 +312,7 @@ export interface AgentOptions {
 export async function runOverviewAgent(o: AgentOptions, deps: AgentDeps): Promise<Summary> {
   const { maxTurns = o.visual ? 6 : 4, maxToolCalls = o.visual ? 50 : 40, deadlineMs = o.visual ? 180_000 : 150_000 } = o;
   if (o.signal?.aborted) throw new AbortError();
-  const draft = createOverviewDraft(o.content);
+  const draft = createOverviewDraft(o.content, { minSections: o.minSections });
   const base = o.input ? { input: o.input, withRead: false } : overviewInput(o.title, o.url, o.content);
   const input = o.visual ? `${base.input}\n\n${o.visual.prompt()}` : base.input;
   const withRead = base.withRead;
