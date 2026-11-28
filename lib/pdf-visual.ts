@@ -1,6 +1,7 @@
 /** On-demand PDF page images for the overview/chat agent. No chrome.storage; bytes stay in memory until close(). */
 import { Type } from '@earendil-works/pi-ai';
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
+import { currentLang, messages, type Lang } from './i18n';
 import { formatPdfPageCatalog, pageNeedsVisualInspection, type PdfPageInfo } from './pdf-text';
 
 export const PDF_INSPECT_MAX_PAGES = 10;
@@ -153,8 +154,10 @@ export function isImageInputRejected(e: unknown): boolean {
   return /400|415|unsupported|not support|invalid|unknown|not allowed|cannot/i.test(s);
 }
 
-export const VISION_UNSUPPORTED = 'This model or API did not accept page images, so charts, figures and scanned wording were not visually read. Choose a vision-capable OpenAI-compatible model in Settings. A text-only fallback was not used.';
-export const VISION_TOOLS_UNSUPPORTED = 'This model cannot call tools, so page images cannot be inspected. Choose a vision-capable OpenAI-compatible model that supports tool calling, in Settings. A text-only fallback was not used.';
+/** English catalog copy; UI and thrown errors should use messages(lang).visionUnsupported. */
+export const VISION_UNSUPPORTED = messages('en').visionUnsupported;
+/** English catalog copy; UI and thrown errors should use messages(lang).visionToolsUnsupported. */
+export const VISION_TOOLS_UNSUPPORTED = messages('en').visionToolsUnsupported;
 
 export class VisionUnsupportedError extends Error {
   readonly code = 'vision-unsupported' as const;
@@ -170,13 +173,12 @@ export function visualInspectReport(session: PdfVisualSession): VisualInspectRep
   const total = session.catalog.length;
   return { inspected, total, budget: session.inspectBudget, remaining: Math.max(0, total - inspected.length) };
 }
-export function formatVisualInspectReport(r: VisualInspectReport): string {
+export function formatVisualInspectReport(r: VisualInspectReport, lang: Lang = currentLang()): string {
+  const t = messages(lang);
   if (r.total <= 0) return '';
-  if (r.inspected.length === 0) {
-    return `No page images were inspected in this run (${r.total} pages available; at most ${r.budget} per run). This result is not a visual reading of the document. A later summarize or chat run can inspect pages.`;
-  }
-  if (r.remaining === 0) return `All ${r.total} pages were inspected visually in this run.`;
-  return `This run inspected ${r.inspected.length} of ${r.total} pages (${r.inspected.join(', ')}; budget ${r.budget} per run, not renewable mid-run). The other pages were not visually read. This result is not a full visual reading of the document. Regenerate or ask in chat to inspect specific remaining pages.`;
+  if (r.inspected.length === 0) return t.visualInspectNone(r.total, r.budget);
+  if (r.remaining === 0) return t.visualInspectAll(r.total);
+  return t.visualInspectPartial(r.inspected.length, r.total, r.inspected.join(', '), r.budget);
 }
 
 export function rejectUnsupportedVision(visual: PdfVisualSession, reason = VISION_UNSUPPORTED): never {

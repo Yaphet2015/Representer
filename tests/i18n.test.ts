@@ -6,6 +6,8 @@ import { buildMockSummary, mockReplyText } from '../lib/mock';
 import { summaryInstructions } from '../lib/prompts';
 import { forkSession, initialState, sessionLabel } from '../lib/sessions';
 import { DEFAULT_SKILLS, DEFAULT_SKILLS_EN, localizeSkill, validateSkill } from '../lib/skills';
+import { formatVisualInspectReport, VISION_UNSUPPORTED, VISION_TOOLS_UNSUPPORTED } from '../lib/pdf-visual';
+import { pdfTextDocument, readPdfBytes, PDF_MAX_PAGES } from '../lib/pdf-text';
 
 describe('resolveLang', () => {
   it('maps zh* to zh-CN and everything else to en; explicit preference wins', () => {
@@ -81,4 +83,69 @@ describe('_locales', () => {
     for (const m of [en, zh]) expect(m.extDescription.message.length).toBeLessThanOrEqual(132);
     expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
   });
+});
+
+describe('PDF panel, errors, titles and skill labels', () => {
+  it('localizes PDF UI, document titles, toolbar/errors and skill-label punctuation', () => {
+    const zh = messages('zh-CN'), en = messages('en');
+    expect(en.pdfSourceLabel).toBe('View PDF source page in sidebar');
+    expect(zh.pdfSourceLabel).toMatch(/[\u4e00-\u9fff]/);
+    expect(zh.pdfSourceLabel).not.toBe(en.pdfSourceLabel);
+    expect(en.pdfChatEmpty).toMatch(/Ask about the PDF/);
+    expect(zh.pdfChatEmpty).toMatch(/[\u4e00-\u9fff]/);
+    expect(en.settingsTitle).toBe('Representer Settings');
+    expect(zh.settingsTitle).toBe('Representer 设置');
+    expect(en.pdfDocumentTitle).toBe('Representer · PDF');
+    expect(zh.pdfDocumentTitle).toBe('Representer · PDF');
+    expect(en.skillLabelSep).toBe(': ');
+    expect(zh.skillLabelSep).toBe('：');
+    expect(en.pdfToolbarTitle('x')).toBe('Representer: x');
+    expect(zh.pdfToolbarTitle('x')).toBe('Representer: x');
+    expect(en.pdfEntryDocumentLoading).toMatch(/still loading/);
+    expect(zh.pdfEntryDocumentLoading).toMatch(/[\u4e00-\u9fff]/);
+    expect(en.pdfPasswordProtected).toMatch(/Password-protected/);
+    expect(zh.pdfPasswordProtected).toMatch(/[\u4e00-\u9fff]/);
+    expect(en.visionUnsupported).toBe(VISION_UNSUPPORTED);
+    expect(en.visionToolsUnsupported).toBe(VISION_TOOLS_UNSUPPORTED);
+    expect(zh.visionUnsupported).toMatch(/[\u4e00-\u9fff]/);
+    expect(zh.visionToolsUnsupported).toMatch(/[\u4e00-\u9fff]/);
+    expect(zh.visionUnsupported).not.toBe(en.visionUnsupported);
+  });
+
+  it('keeps interpolation consistent for PDF errors and inspect reports', () => {
+    const zh = messages('zh-CN'), en = messages('en');
+    expect(en.pdfTooManyPages(400, 300)).toContain('400');
+    expect(en.pdfTooManyPages(400, 300)).toContain('300');
+    expect(zh.pdfTooManyPages(400, 300)).toContain('400');
+    expect(en.pdfHttpError(403)).toContain('HTTP 403');
+    expect(zh.pdfHttpError(403)).toContain('HTTP 403');
+    expect(en.pdfReadingParts(2, 5)).toBe('Reading parts 2/5');
+    expect(zh.pdfReadingParts(2, 5)).toContain('2/5');
+    const partial = { inspected: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], total: 59, budget: 10, remaining: 49 };
+    expect(formatVisualInspectReport(partial, 'en')).toContain('10 of 59');
+    expect(formatVisualInspectReport(partial, 'en')).toContain('not renewable mid-run');
+    expect(formatVisualInspectReport(partial, 'zh-CN')).toMatch(/[\u4e00-\u9fff]/);
+    expect(formatVisualInspectReport(partial, 'zh-CN')).toContain('59');
+    expect(formatVisualInspectReport({ inspected: [], total: 4, budget: 10, remaining: 4 }, 'zh-CN')).toMatch(/[\u4e00-\u9fff]/);
+    expect(formatVisualInspectReport({ inspected: [1, 2], total: 2, budget: 10, remaining: 0 }, 'en')).toContain('All 2 pages');
+  });
+
+  it('throws PDF read errors in the requested language', async () => {
+    expect(() => pdfTextDocument([], 1, 'x', [], 'en')).toThrow(messages('en').pdfPageLimit(PDF_MAX_PAGES));
+    expect(() => pdfTextDocument([], 1, 'x', [], 'zh-CN')).toThrow(messages('zh-CN').pdfPageLimit(PDF_MAX_PAGES));
+    const ac = new AbortController();
+    await expect(readPdfBytes(new Response('blocked', { status: 403 }), ac.signal, 'en')).rejects.toThrow(messages('en').pdfHttpError(403));
+    await expect(readPdfBytes(new Response('blocked', { status: 403 }), ac.signal, 'zh-CN')).rejects.toThrow(messages('zh-CN').pdfHttpError(403));
+    await expect(readPdfBytes(new Response('HTML', { headers: { 'Content-Type': 'text/html' } }), ac.signal, 'zh-CN')).rejects.toThrow(messages('zh-CN').pdfNotPdf);
+  });
+
+  it('wires document titles to the catalog instead of hardcoded HTML', () => {
+    expect(readFileSync('entrypoints/options/main.tsx', 'utf8')).toContain('document.title = t.settingsTitle');
+    expect(readFileSync('components/pdf/PdfPanel.tsx', 'utf8')).toContain('document.title = t.pdfDocumentTitle');
+    expect(readFileSync('entrypoints/options/index.html', 'utf8')).not.toContain('Representer Settings');
+    expect(readFileSync('entrypoints/pdf-panel/index.html', 'utf8')).not.toContain('Representer · PDF');
+    expect(readFileSync('components/Chat.tsx', 'utf8')).toContain('skillRunLabel(s, rawInput, t.skillLabelSep)');
+    expect(readFileSync('components/Chat.tsx', 'utf8')).not.toContain("'：' + rawInput");
+  });
+
 });

@@ -1,4 +1,5 @@
 /** Side-panel render RPC for inspect_pdf_page. PDF.js and page bytes stay in the panel, not the service worker. */
+import { currentLang, messages, type Lang } from './i18n';
 import type { PdfPageInfo } from './pdf-text';
 import type { PdfRenderBackend, RenderedPdfPageBytes } from './pdf-visual';
 
@@ -51,10 +52,11 @@ export type VisualPortLike = {
 };
 
 /** A render backend that asks the PDF panel to paint one page. Bytes never enter the worker. */
-export function panelRenderBackend(port: VisualPortLike): PdfRenderBackend {
+export function panelRenderBackend(port: VisualPortLike, lang: Lang = currentLang()): PdfRenderBackend {
   let next = 0;
   const pending = new Map<number, { resolve: (v: RenderedPdfPageBytes) => void; reject: (e: Error) => void }>();
   let closed = false;
+  const t = messages(lang);
   const failAll = (reason: string) => {
     for (const job of pending.values()) job.reject(new Error(reason));
     pending.clear();
@@ -69,11 +71,11 @@ export function panelRenderBackend(port: VisualPortLike): PdfRenderBackend {
   });
   port.onDisconnect.addListener(() => {
     closed = true;
-    failAll('The PDF side panel disconnected before the page image was ready. Keep the sidebar open to inspect charts.');
+    failAll(t.pdfPanelDisconnected);
   });
   return {
     async render(page, signal) {
-      if (closed) throw new Error('The PDF side panel is not connected. Keep the sidebar open to inspect charts.');
+      if (closed) throw new Error(t.pdfPanelNotConnected);
       signal?.throwIfAborted();
       const id = ++next;
       const result = new Promise<RenderedPdfPageBytes>((resolve, reject) => {
@@ -95,7 +97,7 @@ export function panelRenderBackend(port: VisualPortLike): PdfRenderBackend {
     },
     async close() {
       closed = true;
-      failAll('The PDF visual session was closed.');
+      failAll(t.pdfVisualClosed);
     },
   };
 }

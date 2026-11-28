@@ -15,5 +15,10 @@ export function LangProvider({ children }: { children: ReactNode }) {
   return <LangContext.Provider value={lang}>{children}</LangContext.Provider>;
 }
 
+/** Fixed language, used in tests so a tree can be rendered without reading settings. */
+export function FixedLang({ lang, children }: { lang: Lang; children: ReactNode }) {
+  return <LangContext.Provider value={lang}>{children}</LangContext.Provider>;
+}
+
 export const useLang = (): Lang => useContext(LangContext);
 export const useT = (): Messages => messages(useContext(LangContext));

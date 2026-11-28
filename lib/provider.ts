@@ -11,7 +11,7 @@ import { summarizeWithSteps } from './steps';
 import { messages, type Lang } from './i18n';
 import { pageTools, readTools } from './page-tools';
 import { isInline, MAX_PAGE_CHARS } from './attachment';
-import { isImageInputRejected, inspectPdfPageTools, rejectUnsupportedVision, VISION_TOOLS_UNSUPPORTED, VISION_UNSUPPORTED, VisionUnsupportedError, type PdfVisualSession } from './pdf-visual';
+import { isImageInputRejected, inspectPdfPageTools, rejectUnsupportedVision, VisionUnsupportedError, type PdfVisualSession } from './pdf-visual';
 import { chatSystem, overviewAgentInstructions, summaryInstructions, summaryInput } from './prompts';
 import type { ChatMessage, Settings, Summary } from './types';
 
@@ -66,13 +66,13 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
           instructions: overviewAgentInstructions(lang, s.systemPrompt, { long: !!input }), title, url, content, model: s.model, signal, input, minSections,
           onPartial: more.onPartial, onStatus: more.onStatus, visual,
         }, { turn: (instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs) =>
-          runVisualTurn(s, visual, more, instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs, onThinking) });
+          runVisualTurn(s, lang, visual, more, instructions, turnInput, tools, sig, maxTokens, onStop, onToolArgs, onThinking) });
       } catch (e) {
         if (e instanceof AbortError || signal?.aborted) throw e;
         if (e instanceof VisionUnsupportedError) throw e;
         if (visual && e instanceof ToolsUnsupported) {
-          more.onStatus?.({ vision: 'unsupported', reason: VISION_TOOLS_UNSUPPORTED });
-          rejectUnsupportedVision(visual, VISION_TOOLS_UNSUPPORTED);
+          more.onStatus?.({ vision: 'unsupported', reason: messages(lang).visionToolsUnsupported });
+          rejectUnsupportedVision(visual, messages(lang).visionToolsUnsupported);
         }
         if (!(e instanceof ToolsUnsupported)) throw friendly(e, lang);
       }
@@ -84,7 +84,7 @@ export function providerFor(s: Settings, lang: Lang = 'zh-CN'): Provider {
         throw friendly(e, lang);
       }
     },
-    chat: (c, history, input, onDelta, signal) => runVisualChat(s, c, history, input, onDelta, signal),
+    chat: (c, history, input, onDelta, signal) => runVisualChat(s, lang, c, history, input, onDelta, signal),
   };
 }
 
@@ -92,13 +92,13 @@ function modalitiesOf(visual?: PdfVisualSession): readonly InputModality[] {
   return visual && visual.vision().kind !== 'unsupported' ? ['text', 'image'] : ['text'];
 }
 
-async function runVisualTurn(s: Settings, visual: PdfVisualSession | undefined, more: SummarizeHooks, instructions: string, input: string, tools: Parameters<typeof runTurn>[6], sig: AbortSignal, maxTokens: number, onStop: (reason: string) => void, onToolArgs: (name: string, args: unknown) => void, onThinking?: (t: string) => void): Promise<string> {
+async function runVisualTurn(s: Settings, lang: Lang, visual: PdfVisualSession | undefined, more: SummarizeHooks, instructions: string, input: string, tools: Parameters<typeof runTurn>[6], sig: AbortSignal, maxTokens: number, onStop: (reason: string) => void, onToolArgs: (name: string, args: unknown) => void, onThinking?: (t: string) => void): Promise<string> {
   try {
     return await runTurn(s, instructions, [], input, undefined, sig, tools, onThinking, { maxTokens, onStop, onToolArgs, onUsage: more.onUsage, reasoning: input ? 'off' : 'low', modalities: modalitiesOf(visual) });
   } catch (e) {
     if (!visual || visual.vision().kind === 'unsupported' || !isImageInputRejected(e)) throw e;
-    more.onStatus?.({ vision: 'unsupported', reason: VISION_UNSUPPORTED });
-    rejectUnsupportedVision(visual, VISION_UNSUPPORTED);
+    more.onStatus?.({ vision: 'unsupported', reason: messages(lang).visionUnsupported });
+    rejectUnsupportedVision(visual, messages(lang).visionUnsupported);
   }
 }
 
@@ -109,14 +109,14 @@ function chatTools(c: ChatContext) {
   return defineExtension({ name: 'pdf-chat', tools: [...page, ...inspect] });
 }
 
-async function runVisualChat(s: Settings, c: ChatContext, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string> {
+async function runVisualChat(s: Settings, lang: Lang, c: ChatContext, history: ChatMessage[], input: string, onDelta: (t: string) => void, signal?: AbortSignal): Promise<string> {
   const tools = chatTools(c);
   const instructions = chatSystem(c.title, c.summary, c.content, s.systemPrompt, c.visual?.prompt());
   try {
     return await runTurn(s, instructions, history, input, onDelta, signal, tools, undefined, { modalities: modalitiesOf(c.visual) });
   } catch (e) {
     if (!c.visual || c.visual.vision().kind === 'unsupported' || !isImageInputRejected(e)) throw e;
-    rejectUnsupportedVision(c.visual, VISION_UNSUPPORTED);
+    rejectUnsupportedVision(c.visual, messages(lang).visionUnsupported);
   }
 }
 
