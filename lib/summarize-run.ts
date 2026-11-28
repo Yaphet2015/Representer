@@ -28,8 +28,6 @@ export function createSummarizeRunner(cache: Cache) {
         const summary = await raceAbort(generate(ac.signal), ac.signal);
         if (ac.signal.aborted) return { cancelled: true }; // never cache a cancelled run
         const anchors = usedAnchors(summary, req.anchors); // keep only the fingerprints the summary points at
-        // Replacing a summary starts the chats over; the first summary of a page keeps the chats held without one.
-        if (await cache.getSummary(url)) await cache.clearSummary(url);
         await cache.setSummary(url, { summary, content, title, anchors });
         return { summary, anchors };
       } catch (e) {

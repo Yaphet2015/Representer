@@ -82,7 +82,7 @@ describe('forkSession', () => {
     expect(setActive(closed, 'nope').active).toBe(MAIN_ID);
     expect(forkSession(closed, MAIN_ID, 4, 'c').state.sessions.at(-1)!.name).toBe('支线 2');
   });
-  it('persists per page and migrates the legacy chat key; re-summarize clears sessions', async () => {
+  it('persists per page and migrates the legacy chat key; re-summarize leaves sessions in place', async () => {
     const kv = memKV(); const c = createCache(kv);
     await kv.set('chat:u', [{ role: 'user', content: 'legacy' }]);
     const s = await c.getSessions('u');
@@ -92,6 +92,7 @@ describe('forkSession', () => {
     expect((await c.getSessions('u')).sessions.map((x) => x.id)).toEqual([MAIN_ID, 'x']);
     expect((await c.getSessions('other')).sessions).toHaveLength(1);
     await c.clearSummary('u');
-    expect((await c.getSessions('u')).sessions).toHaveLength(1);
+    expect((await c.getSessions('u')).sessions.map((x) => x.id)).toEqual([MAIN_ID, 'x']);
+    expect((await c.getSessions('u')).sessions[0]!.messages[0]!.content).toBe('legacy');
   });
 });
