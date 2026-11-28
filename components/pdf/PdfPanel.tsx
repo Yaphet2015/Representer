@@ -238,7 +238,8 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
       {!loading && inspectNotice && <p role="status" className="text-[12px] leading-5 text-ink-2">{inspectNotice}</p>}
       {flash && <p data-flash className="text-[11.5px] text-ink-3">{flash}</p>}
     </div>
-    {tab === 'chat' && doc ? <div className="flex min-h-0 flex-1 flex-col p-4"><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div> : <div className="rp-scroll min-h-0 flex-1 overflow-y-auto pt-4">
+    {doc && <div className={`flex min-h-0 flex-1 flex-col p-4 ${tab === 'chat' ? '' : 'hidden'}`}><PdfChat url={key} validate={validate} ensureVisual={() => openVisualLink(grant, doc, visual.current).then((link) => { visual.current = link; })} /></div>}
+    <div className={`rp-scroll min-h-0 flex-1 overflow-y-auto pt-4 ${tab === 'chat' && doc ? 'hidden' : ''}`}>
       {loading && shown && (
         <OverviewSource.Provider value={source}><Overview summary={shown} pageTitle={doc?.title} host={new URL(grant.url).hostname} streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined}>
           <Button variant="secondary" size="xs" data-cancel onClick={() => { void cancel(); }}>{t.cancelSummary}</Button>
@@ -259,7 +260,7 @@ function PdfDocument({ grant }: { grant: PdfGrant }) {
         <OverviewSource.Provider value={source}><Overview summary={summary} pageTitle={doc?.title} host={new URL(grant.url).hostname} fromCache={cacheInfo !== null} cachedAt={cacheInfo?.createdAt} onRegenerate={() => { void run(true); }} regenerated={!!flash} /></OverviewSource.Provider>
       )}
       {load.kind === 'error' && !error && <p role="alert" className="px-4 text-[12px] text-red">{load.message}</p>}
-    </div>}
+    </div>
     {doc && sourcePage !== null && <PdfSourcePage doc={doc} page={sourcePage} setPage={setSourcePage} close={() => setSourcePage(null)} renderPage={renderSourcePage} />}
   </>;
 }

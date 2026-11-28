@@ -4,7 +4,7 @@ import { ErrorView, NoOverview } from '../components/EmptyStates';
 import { LangProvider } from '../components/i18n';
 import { createCache } from '../lib/cache';
 import { messages } from '../lib/i18n';
-import { appendMessages, initialState, MAIN_ID } from '../lib/sessions';
+import { appendMessages, MAIN_ID } from '../lib/sessions';
 import { memKV } from '../lib/storage';
 import { chatContext, createSummarizeRunner } from '../lib/summarize-run';
 import type { Summary } from '../lib/types';
@@ -56,14 +56,15 @@ describe('cancelling the summary', () => {
 });
 
 describe('chats without a summary', () => {
-  it('first summary keeps the chats held without one; replacing a summary starts them over', async () => {
+  it('first summary and regenerate leave persisted sessions in place', async () => {
     const cache = createCache(memKV()); const runner = createSummarizeRunner(cache);
-    await cache.updateSessions(req.url, (s) => appendMessages(s, MAIN_ID, [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a' }]));
+    const messages = [{ role: 'user' as const, content: 'q' }, { role: 'assistant' as const, content: 'a' }];
+    await cache.updateSessions(req.url, (s) => appendMessages(s, MAIN_ID, messages));
     await runner.run(req, async () => summary('one'));
-    expect((await cache.getSessions(req.url)).sessions[0]!.messages).toHaveLength(2);
+    expect((await cache.getSessions(req.url)).sessions[0]!.messages).toEqual(messages);
     await runner.run(req, async () => summary('two'));
-    expect((await cache.getSessions(req.url)).sessions[0]!.messages).toHaveLength(0);
-    expect(initialState().sessions[0]!.messages).toHaveLength(0);
+    expect((await cache.getSummary(req.url))?.summary.overview).toBe('two');
+    expect((await cache.getSessions(req.url)).sessions[0]!.messages).toEqual(messages);
   });
   it('chat context is the cached summary when there is one, the page sent along when not, and nothing otherwise', async () => {
     const cache = createCache(memKV());

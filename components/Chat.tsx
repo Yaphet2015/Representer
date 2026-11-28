@@ -14,7 +14,7 @@ import { SettingsLead } from './Capsule';
 import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 
 
-export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => Promise<{ title: string; content: string }>; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
+export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => Promise<{ title: string; content: string }>; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -35,10 +35,9 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
     requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
   }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { onBusy?.(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const messages: ChatMessage[] = (state && getSession(state, sid)?.messages) || [];
 
-  useEffect(() => { rpc('getSessions', { url }).then((r) => r.ok && setState(r.state)); }, [url, reloadKey]);
+  useEffect(() => { rpc('getSessions', { url }).then((r) => r.ok && setState(r.state)); }, [url]);
   const loadSkills = useCallback(() => skillStore.ordered().then((l) => setSkills(l.map((s) => localizeSkill(s, lang)))), [skillStore, lang]);
   useEffect(() => {
     loadSkills();

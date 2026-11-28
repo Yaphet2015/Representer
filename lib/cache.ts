@@ -34,7 +34,8 @@ export function createCache(kv: KV, now: () => number = Date.now) {
     async setSummary(url: string, data: Omit<CachedSummary, 'createdAt'>) {
       await kv.set('sum:' + url, { ...data, hash: pageHash(data.content), createdAt: now() });
     },
-    async clearSummary(url: string) { await kv.remove('sum:' + url); await kv.remove('chat:' + url); await kv.remove('sess:' + url); },
+    /** Drop the cached overview only. Chat sessions for the page are independent. */
+    async clearSummary(url: string) { await kv.remove('sum:' + url); },
     /** Chat sessions for a page (main + side sessions). Migrates the legacy single-chat key. */
     async getSessions(url: string): Promise<SessionsState> {
       const s = (await kv.get('sess:' + url)) as SessionsState | undefined;
