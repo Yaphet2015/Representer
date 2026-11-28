@@ -3,14 +3,22 @@
  * Each call opens a short-lived Harness over MemoryStorage (our own 24h cache lives in chrome.storage),
  * creates a root conversation with the BYOK model, seeds prior chat turns, submits the input and
  * streams text deltas from the agent event stream.
+ *
+ * Prefer the Responses path when the server has it (reasoning and function tools can be used together).
+ * A server without that route is retried once on chat completions; that miss is cached in memory.
  */
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createModels, createProvider, type Model, type Usage } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
 import { createRegistry, Harness, type Extension, MemoryStorage, UserEntry, AssistantEntry, watchEvents } from '@earendil-works/pi-durable';
 import { AbortError } from './abort';
 import { maxOutputFor, OutputTruncated } from './budget';
+import { isEndpointMissing, lookupLlmApi, rememberLlmApi, type LlmApi } from './llm-api';
 import type { ChatMessage, Settings } from './types';
+
+export { isEndpointMissing, lookupLlmApi, rememberLlmApi, resetLlmApiCache, normalizeLlmBaseUrl, LLM_API_NEGATIVE_TTL_MS } from './llm-api';
+export type { LlmApi } from './llm-api';
 
 const PROVIDER = 'byok';
 
@@ -22,22 +30,22 @@ const PROVIDER = 'byok';
 export type Reasoning = 'off' | 'low';
 
 export type InputModality = 'text' | 'image';
-export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model), reasoning?: Reasoning, modalities: readonly InputModality[] = ['text']) {
+export function buildModels(s: Settings, maxTokens = maxOutputFor(s.model), reasoning?: Reasoning, modalities: readonly InputModality[] = ['text'], api: LlmApi = 'openai-responses') {
   const baseUrl = s.baseUrl.replace(/\/+$/, '');
   // pi-ai silently drops images unless input includes "image". Only set that when this turn actually offers page images.
   const input: InputModality[] = modalities.includes('image') ? ['text', 'image'] : ['text'];
-  const model: Model<'openai-completions'> = {
-    id: s.model, name: s.model, api: 'openai-completions', provider: PROVIDER, baseUrl,
+  const model = {
+    id: s.model, name: s.model, api, provider: PROVIDER, baseUrl,
     // a reasoning model with 'off' mapped to "none": only set when a call asks for a reasoning level
     reasoning: !!reasoning, ...(reasoning ? { thinkingLevelMap: { off: 'none' } } : {}), input, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000, maxTokens,
-  } as Model<'openai-completions'>;
+  } as Model<LlmApi>;
   const models = createModels();
   models.setProvider(createProvider({
     id: PROVIDER, name: 'BYOK (OpenAI-compatible)', baseUrl,
     auth: { apiKey: { name: 'BYOK API key', resolve: async () => ({ auth: { apiKey: s.apiKey || 'no-key' } }) /* keyless local servers (Ollama) ignore it */ } },
     models: [model],
-    api: openAICompletionsApi(),
+    api: api === 'openai-responses' ? openAIResponsesApi() : openAICompletionsApi(),
   }) as any);
   return models;
 }
@@ -81,6 +89,11 @@ function toolArgsTracker(emit: (name: string, args: unknown) => void) {
   };
 }
 
+/** Completions cannot combine function tools with reasoning; turn reasoning off on that path only. */
+function optsFor(api: LlmApi, tools: Extension | null | undefined, opts: TurnOptions): TurnOptions {
+  return api === 'openai-completions' && tools ? { ...opts, reasoning: 'off' } : opts;
+}
+
 /** Run one turn: instructions + prior history + input. Calls onDelta for each streamed text chunk; resolves with the full answer. */
 export async function runTurn(
   s: Settings, instructions: string, history: ChatMessage[], input: string,
@@ -89,14 +102,37 @@ export async function runTurn(
   onThinking?: (t: string) => void,
   opts: TurnOptions = {},
 ): Promise<string> {
-  if (!opts.reasoning) return turnOnce(s, instructions, history, input, onDelta, signal, tools, onThinking, opts);
+  const cached = lookupLlmApi(s.baseUrl);
+  if (cached === 'openai-completions') {
+    return turnOn('openai-completions', s, instructions, history, input, onDelta, signal, tools, onThinking, opts);
+  }
   let sent = false;
   const watch = onDelta ? (d: string) => { sent = true; onDelta(d); } : undefined;
   try {
-    return await turnOnce(s, instructions, history, input, watch, signal, tools, onThinking, opts);
+    const text = await turnOn('openai-responses', s, instructions, history, input, watch, signal, tools, onThinking, opts);
+    rememberLlmApi(s.baseUrl, 'openai-responses');
+    return text;
+  } catch (e) {
+    if (sent || signal?.aborted || !isEndpointMissing(e)) throw e;
+    rememberLlmApi(s.baseUrl, 'openai-completions');
+    return turnOn('openai-completions', s, instructions, history, input, onDelta, signal, tools, onThinking, opts);
+  }
+}
+
+async function turnOn(
+  api: LlmApi, s: Settings, instructions: string, history: ChatMessage[], input: string,
+  onDelta: ((t: string) => void) | undefined, signal: AbortSignal | undefined, tools: Extension | null | undefined,
+  onThinking: ((t: string) => void) | undefined, opts: TurnOptions,
+): Promise<string> {
+  const next = optsFor(api, tools, opts);
+  if (!next.reasoning) return turnOnce(api, s, instructions, history, input, onDelta, signal, tools, onThinking, next);
+  let sent = false;
+  const watch = onDelta ? (d: string) => { sent = true; onDelta(d); } : undefined;
+  try {
+    return await turnOnce(api, s, instructions, history, input, watch, signal, tools, onThinking, next);
   } catch (e) {
     if (sent || signal?.aborted || !isReasoningRejected(e)) throw e;
-    return turnOnce(s, instructions, history, input, onDelta, signal, tools, onThinking, { ...opts, reasoning: undefined });
+    return turnOnce(api, s, instructions, history, input, onDelta, signal, tools, onThinking, { ...next, reasoning: undefined });
   }
 }
 
@@ -104,7 +140,7 @@ export async function runTurn(
 export const isReasoningRejected = (e: unknown) => /reasoning|thinking/i.test(String((e as any)?.message ?? e)) && /400|unsupported|not support|invalid|unrecognized|unknown/i.test(String((e as any)?.message ?? e));
 
 async function turnOnce(
-  s: Settings, instructions: string, history: ChatMessage[], input: string,
+  api: LlmApi, s: Settings, instructions: string, history: ChatMessage[], input: string,
   onDelta: ((t: string) => void) | undefined, signal: AbortSignal | undefined, tools: Extension | null | undefined,
   onThinking: ((t: string) => void) | undefined, opts: TurnOptions,
 ): Promise<string> {
@@ -112,7 +148,7 @@ async function turnOnce(
   const ctx = BACKGROUND_CONTEXT;
   const registry = createRegistry();
   if (tools) registry.install(tools);
-  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens, opts.reasoning, opts.modalities), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
+  const harness = await Harness.open(new MemoryStorage(), { models: buildModels(s, opts.maxTokens, opts.reasoning, opts.modalities, api), registry, settings: { progress: { partialIntervalMs: 30, outputIntervalMs: 100 } } } as any, ctx);
   try {
     const root = await harness.root(ctx, { agent: { model: { provider: PROVIDER, modelId: s.model }, instructions, ...(opts.reasoning ? { thinkingLevel: opts.reasoning } : {}) } } as any);
     if (history.length) {
@@ -120,7 +156,7 @@ async function turnOnce(
         for (const m of history) {
           if (m.role === 'user') await tx.appendEntry(UserEntry, root.id, { model: [{ role: 'user', content: m.content, timestamp: now() }] });
           else await tx.appendEntry(AssistantEntry, root.id, { model: [{
-            role: 'assistant', content: [{ type: 'text', text: m.content }], api: 'openai-completions', provider: PROVIDER,
+            role: 'assistant', content: [{ type: 'text', text: m.content }], api, provider: PROVIDER,
             model: s.model, stopReason: 'stop', timestamp: now(),
             usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
           }] });

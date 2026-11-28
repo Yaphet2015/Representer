@@ -6,6 +6,7 @@ const TEXT = '给设计师的三条建议：\n\n1. 让过程可见。\n2. 让用
 let server: Server; let base = '';
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (!req.url?.includes('/chat/completions')) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Cannot POST ' + (req.url ?? '')); return; }
     let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', async () => {
       const body = JSON.parse(raw);
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });

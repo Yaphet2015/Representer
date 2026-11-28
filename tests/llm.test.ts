@@ -5,6 +5,7 @@ import { runTurn } from '../lib/llm';
 let server: Server; let base = ''; const bodies: any[] = [];
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (!req.url?.includes('/chat/completions')) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Cannot POST ' + (req.url ?? '')); return; }
     let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => {
       const body = JSON.parse(raw); bodies.push({ body, auth: req.headers.authorization });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });

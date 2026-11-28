@@ -107,6 +107,7 @@ let server: Server; let base = ''; const requests: any[] = [];
 let mode: 'tools' | 'hang' = 'tools';
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (!req.url?.includes('/chat/completions')) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Cannot POST ' + (req.url ?? '')); return; }
     let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', async () => {
       const body = JSON.parse(raw); requests.push(body);
       if (mode === 'hang') return; // never answers
