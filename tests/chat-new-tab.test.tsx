@@ -63,7 +63,7 @@ afterEach(async () => {
 
 const settle = async () => { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); };
 const renderChat = async () => {
-  await act(async () => root.render(<Chat url="https://example.test/page" pageTitle="Page" hasSummary reloadKey={0} getPage={async () => ({ title: 'Page', content: 'body' })} />));
+  await act(async () => root.render(<Chat url="https://example.test/page" pageTitle="Page" hasSummary getPage={async () => ({ title: 'Page', content: 'body' })} />));
   await settle();
 };
 const composer = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label]')!;

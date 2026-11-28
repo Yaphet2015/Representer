@@ -56,7 +56,6 @@ export function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [cacheInfo, setCacheInfo] = useState<{ createdAt?: number } | null>(null);
   const [anchors, setAnchors] = useState<Anchors | undefined>(undefined);
-  const [chatKey, setChatKey] = useState(0);
   const [loading, setLoading] = useState(false);
   /** what is readable of the overview while it streams in (null until the first text) */
   const [partial, setPartial] = useState<Summary | null>(null);
@@ -74,7 +73,6 @@ export function App() {
   const [cancelled, setCancelled] = useState(false);
   /** bumped by every run and cancel, so a run that was cancelled or replaced never touches the UI */
   const runId = useRef(0);
-  const chatBusy = useRef(false);
   const pageRef = useRef<{ url: string; page: MergedPage } | null>(null);
   const [frameNote, setFrameNote] = useState('');
   const noticeText = useCallback((notices: FrameNotice[]) => {
@@ -140,7 +138,7 @@ export function App() {
         // the cache is by URL and page text: a page whose text changed is summarized again
         const c = await rpc('getCached', { url: u, hash: pageHash(page.content) });
         if (stale()) return;
-        if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setFrameNote(noticeText(page.notices)); setChatKey((k) => k + 1); return; }
+        if (c.ok && c.cached) { setCacheInfo({ createdAt: c.cached.createdAt }); setSummary(c.cached.summary); setAnchors(c.cached.anchors); setTitle(c.cached.title); setFrameNote(noticeText(page.notices)); return; }
       }
       setTitle(page.title);
       setFrameNote(noticeText(page.notices));
@@ -156,7 +154,6 @@ export function App() {
       if (force) await new Promise((res) => setTimeout(res, Math.max(0, 500 - (Date.now() - t0))));
       if (stale()) return;
       setSummary(r.summary); setAnchors(r.anchors);
-      if (force || !chatBusy.current) setChatKey((k) => k + 1); // a reply streaming in the chat must not be reloaded away
       if (force) { setFlash(t.updated); setTimeout(() => setFlash(''), 1500); }
     } catch (e: any) {
       if (!stale()) setError(String(e.message ?? e)); // a stream that fails midway drops its partial overview
@@ -220,8 +217,7 @@ export function App() {
             <span className={`absolute inset-y-3 left-0.5 w-[3px] rounded-full transition-colors duration-150 ${resizing ? 'bg-accent' : 'bg-transparent group-hover:bg-line-strong'}`} />
           </div>
           <div className="relative z-[1] min-h-0 flex-1">
-            {isOverview ? (
-              <div ref={scrollRef} className="rp-scroll h-full overflow-y-auto pt-11">
+            <div ref={isOverview ? scrollRef : undefined} className={`rp-scroll h-full overflow-y-auto pt-11 ${isOverview ? '' : 'hidden'}`}>
                 <SettingsLead className="-mt-11 h-11" />
                 {loading && partial && (
                   <Overview locator={liveLocator} streaming startedAt={startedAt} statusLabel={status === 'repairing' ? t.repairing : undefined} summary={partial} pageTitle={title} host={pageHost()}>
@@ -252,11 +248,10 @@ export function App() {
                   </motion.div>
                 )}
               </div>
-            ) : (
-              <div className="flex h-full flex-col">
-                <Chat url={url} pageTitle={title} reloadKey={chatKey} hasSummary={!!summary} getPage={getPage} onBusy={(b) => { chatBusy.current = b; }} scrollRef={scrollRef} draft={draft} onDraftUsed={() => setDraft(null)} />
-              </div>
-            )}
+            {/* stay mounted across tab switches and overview refreshes so drafts and unsaved failed messages remain */}
+            <div className={`flex h-full flex-col ${isOverview ? 'hidden' : ''}`}>
+              <Chat url={url} pageTitle={title} hasSummary={!!summary} getPage={getPage} scrollRef={isOverview ? undefined : scrollRef} draft={draft} onDraftUsed={() => setDraft(null)} />
+            </div>
           </div>
           <div className="absolute left-1/2 top-1.5 z-[7] -translate-x-1/2" onPointerEnter={expand} onFocus={expand}>
             <Capsule value={tab} onChange={setTab} collapsed={collapsed} summarizing={loading} />

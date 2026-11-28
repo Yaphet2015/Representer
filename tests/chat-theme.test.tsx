@@ -51,7 +51,7 @@ afterEach(async () => {
 describe('user bubble theme colors', () => {
   it.each(['light', 'dark'])('uses theme surfaces for normal and Skill messages in %s mode', async (theme) => {
     container.dataset.theme = theme;
-    await act(async () => root.render(<Chat url="https://example.test" pageTitle="Test" hasSummary reloadKey={0} getPage={async () => ({ title: 'Test', content: '' })} />));
+    await act(async () => root.render(<Chat url="https://example.test" pageTitle="Test" hasSummary getPage={async () => ({ title: 'Test', content: '' })} />));
     const bubbles = [...container.querySelectorAll('[data-msg="user"] > div')];
     expect(bubbles).toHaveLength(2);
     const [normal, skill] = bubbles;
