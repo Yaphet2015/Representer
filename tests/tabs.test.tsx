@@ -132,7 +132,7 @@ describe('settings icon in the scrolling lead', () => {
     expect(chat).toContain('{!state && <SettingsLead className="-mx-4 -mt-14 h-14" />}');
     const pdf = readFileSync('components/pdf/PdfPanel.tsx', 'utf8');
     expect(pdf).toContain('openOptionsPage');
-    expect(pdf).toContain('Settings</Button>');
+    expect(pdf).toContain('{t.settingsShort}</Button>');
     expect(pdf).not.toContain('SettingsLead');
     const capsule = readFileSync('components/Capsule.tsx', 'utf8');
     expect(capsule).toContain("rpc('openOptions'");

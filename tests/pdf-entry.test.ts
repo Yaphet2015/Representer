@@ -69,11 +69,15 @@ beforeEach(() => {
   bindSend();
   vi.stubGlobal('chrome', {
     runtime: { id: 'ext', getURL: (p: string) => 'chrome-extension://ext' + p, onMessage: messages, onConnect: connect, sendMessage: vi.fn(async () => {}), lastError: undefined },
-    storage: { session: {
-      get: async (k: string | null) => (k == null ? { ...session } : { [k]: session[k] }),
-      set: async (v: Record<string, unknown>) => { Object.assign(session, v); },
-      remove: async (k: string) => { delete session[k]; },
-    } },
+    storage: {
+      session: {
+        get: async (k: string | null) => (k == null ? { ...session } : { [k]: session[k] }),
+        set: async (v: Record<string, unknown>) => { Object.assign(session, v); },
+        remove: async (k: string) => { delete session[k]; },
+      },
+      local: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
     scripting: { executeScript: execute },
     action: { onClicked: action, setBadgeText: badge, setTitle: title }, commands: { onCommand: command },
     sidePanel: { open, close, setOptions, setPanelBehavior },

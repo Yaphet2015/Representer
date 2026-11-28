@@ -31,6 +31,7 @@ function Options() {
   const lang = useLang();
   const theme = useTheme();
   useEffect(() => { document.documentElement.dataset.theme = theme; document.documentElement.classList.toggle('dark', theme === 'dark'); }, [theme]);
+  useEffect(() => { document.title = t.settingsTitle; }, [t]);
   const [s, setS] = useState<Settings>(DEFAULT_SETTINGS);
   const sRef = useRef(s); sRef.current = s;
   const [shortcut, setShortcut] = useState<string | null>(null);

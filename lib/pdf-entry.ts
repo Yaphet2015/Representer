@@ -4,6 +4,8 @@ import { PDF_MAX_PAGES } from './pdf-text';
 import { closeVisualSession, setVisualSession } from './pdf-visual-sessions';
 import { createPdfVisualSession } from './pdf-visual';
 import { PDF_VISUAL_PORT, isPdfVisualRegister, panelRenderBackend } from './pdf-visual-port';
+import { messages, resolveLang, uiLanguage, type Lang } from './i18n';
+import { KEYS, loadSettings, onStorageChange } from './storage';
 
 const ENTRY_TRACE = import.meta.env.VITE_RP_ENTRY_DIAG === '1';
 
@@ -21,6 +23,12 @@ function fromPanel(sender: chrome.runtime.MessageSender): boolean {
 /** Session-scoped user-action grants. No free-form fetch RPC, no automatic network requests. */
 export function installPdfEntry(toggle: (id?: number, documentId?: string) => Promise<void>) {
   if (ENTRY_TRACE) recordEntryTrace({ stage: 'entry-install' });
+  let lang: Lang = resolveLang('auto', uiLanguage());
+  const refreshLang = () => loadSettings().then((s) => { lang = resolveLang(s.lang, uiLanguage()); }).catch(() => {});
+  const changed = (chrome.storage as { onChanged?: unknown } | undefined)?.onChanged;
+  if (changed) onStorageChange([KEYS.settings], () => { void refreshLang(); });
+  const t = () => messages(lang);
+  type EntryMsg = 'pdfEntryShortcutRejected' | 'pdfEntryPanelOpenFailed' | 'pdfEntryWebpageUnavailable' | 'pdfEntryDocumentLoading' | 'pdfEntryDocumentUnavailable';
   type DocumentKind = { url: string; kind: 'html' | 'pdf' };
   const documents = new Map<number, DocumentKind>();
   const inspectedDocuments = ENTRY_TRACE ? new Map<number, string>() : undefined;
@@ -141,7 +149,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     void chrome.action.setBadgeText({ tabId: id, text: '' }).catch(() => {});
     void chrome.action.setTitle({ tabId: id, title: 'Representer' }).catch(() => {});
   };
-  const entryError = (id: number, code: EntryErrorCode, message: string) => {
+  const entryError = (id: number, code: EntryErrorCode, key: EntryMsg) => {
     if (ENTRY_TRACE) recordEntryTrace({ stage: 'entry-error', tabId: id, code });
     // Do not log URLs, document contents, authorization tokens, or raw API errors.
     const previous = warnings.get(id);
@@ -150,7 +158,10 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       console.warn('[representer] entry failed', { code });
     }
     void chrome.action.setBadgeText({ tabId: id, text: '!' }).catch(() => {});
-    void chrome.action.setTitle({ tabId: id, title: `Representer: ${message}` }).catch(() => {});
+    void refreshLang().finally(() => {
+      const m = t();
+      void chrome.action.setTitle({ tabId: id, title: m.pdfToolbarTitle(m[key]) }).catch(() => {});
+    });
   };
   chrome.tabs.onRemoved.addListener((id) => { warnings.delete(id); recovering.delete(id); });
 
@@ -165,8 +176,8 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       void chrome.storage.session.remove(key(id));
       const gesture = error instanceof Error && error.message.includes('user gesture');
       entryError(id, gesture ? 'pdf-user-gesture' : 'pdf-open', gesture
-        ? 'Chrome did not accept the shortcut action. Click the toolbar button to open the PDF panel.'
-        : 'The PDF panel could not open. Click the toolbar button to retry.');
+        ? 'pdfEntryShortcutRejected'
+        : 'pdfEntryPanelOpenFailed');
     };
     // Configure and open in the gestured API callback; no Promise continuation before open().
     void chrome.sidePanel.setOptions({ tabId: id, path: panelPath(id), enabled: true }).then(ENTRY_TRACE ? () => {
@@ -215,7 +226,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       if (ENTRY_TRACE) recordEntryTrace({ stage: 'web-toggle-resolved', tabId: id });
       if (current()) clearError(id);
     } catch {
-      if (current()) entryError(id, 'webpage-unavailable', 'The webpage panel could not load. Chrome may have denied access to this document.');
+      if (current()) entryError(id, 'webpage-unavailable', 'pdfEntryWebpageUnavailable');
     } finally { if (recovering.get(id) === version) recovering.delete(id); }
   };
 
@@ -235,7 +246,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     }
     if (tab.status === 'loading') {
       if (ENTRY_TRACE) recordEntryTrace({ stage: 'skip-loading', tabId: id });
-      entryError(id, 'document-loading', 'The document is still loading. Try again when it is ready.');
+      entryError(id, 'document-loading', 'pdfEntryDocumentLoading');
       return;
     }
     const version = navigationVersions.get(id) ?? 0;
@@ -263,7 +274,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
       if (error || !top || !value || typeof value !== 'object'
         || !('url' in value) || typeof value.url !== 'string' || !samePublicDocument(value.url, url)
         || !('mime' in value) || typeof value.mime !== 'string' || !value.mime) {
-        entryError(id, 'document-unavailable', 'Chrome could not inspect this document. No PDF panel was opened.');
+        entryError(id, 'document-unavailable', 'pdfEntryDocumentUnavailable');
         return;
       }
       if (ENTRY_TRACE && top.documentId) inspectedDocuments?.set(id, top.documentId);
@@ -357,7 +368,7 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
   chrome.runtime.onMessage.addListener((msg: unknown, sender, reply) => {
     if (!msg || typeof msg !== 'object' || !('type' in msg) || !fromPanel(sender)) return false;
     if (msg.type === PDF_VISUAL_CLOSE && 'url' in msg && typeof msg.url === 'string' && 'token' in msg && typeof msg.token === 'string') {
-      if (!grantFor(msg.url, msg.token)) { reply({ ok: false, error: 'Authorization expired.' }); return true; }
+      if (!grantFor(msg.url, msg.token)) { reply({ ok: false, error: t().pdfAuthExpiredShort }); return true; }
       void closeVisualSession(pdfCacheUrl(msg.url)).then(() => reply({ ok: true }), (e) => reply({ ok: false, error: String((e as Error).message ?? e) }));
       return true;
     }
@@ -369,12 +380,14 @@ export function installPdfEntry(toggle: (id?: number, documentId?: string) => Pr
     if (!sender || !fromPanel(sender)) { port.disconnect(); return; }
     const onMessage = (msg: unknown) => {
       if (!isPdfVisualRegister(msg)) return;
-      if (!grantFor(msg.url, msg.token) || msg.catalog.length < 1 || msg.catalog.length > PDF_MAX_PAGES) {
-        port.postMessage({ type: 'error', id: 0, error: 'Authorization expired.' });
-        return;
-      }
-      const session = createPdfVisualSession({ catalog: msg.catalog, pageByAnchor: msg.pageByAnchor, backend: panelRenderBackend(port) });
-      void setVisualSession(pdfCacheUrl(msg.url), session);
+      void refreshLang().finally(() => {
+        if (!grantFor(msg.url, msg.token) || msg.catalog.length < 1 || msg.catalog.length > PDF_MAX_PAGES) {
+          port.postMessage({ type: 'error', id: 0, error: t().pdfAuthExpiredShort });
+          return;
+        }
+        const session = createPdfVisualSession({ catalog: msg.catalog, pageByAnchor: msg.pageByAnchor, backend: panelRenderBackend(port, lang) });
+        void setVisualSession(pdfCacheUrl(msg.url), session);
+      });
     };
     port.onMessage.addListener(onMessage);
   });

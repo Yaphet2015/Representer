@@ -14,6 +14,11 @@ import { SettingsLead } from './Capsule';
 import { quickItems, slashItems, type SlashItem } from './SlashMenu';
 
 
+/** Skill chip label: icon, name, and the user's text after a language-appropriate separator. */
+export function skillRunLabel(s: Pick<Skill, 'icon' | 'name'>, rawInput: string, sep: string): string {
+  return `${s.icon ? s.icon + ' ' : ''}${s.name}${rawInput.trim() ? sep + rawInput.trim() : ''}`;
+}
+
 export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, onBusy, reloadKey, scrollRef, draft, onDraftUsed }: { url: string; pageTitle: string; disabled?: boolean; /** without a summary the page text goes along with each message and serves as the attachment */ hasSummary: boolean; getPage: () => Promise<{ title: string; content: string }>; onBusy?: (busy: boolean) => void; reloadKey: number; /** the messages scroller, so the panel can follow the reader's scrolling (floating capsule) */ scrollRef?: (el: HTMLDivElement | null) => void; /** text to put into the input (never sent for the user) */ draft?: { text: string; id: number } | null; onDraftUsed?: () => void }) {
   const t = useT();
   const [state, setState] = useState<SessionsState | null>(null);
@@ -103,7 +108,7 @@ export function Chat({ url, pageTitle, disabled = false, hasSummary, getPage, on
     const prompt = renderTemplate(s.template, { input: rawInput, selection: lastSelection.current, page_title: pageTitle });
     setInput('');
     await skillStore.markUsed(s.id);
-    stream(prompt, sid, `${s.icon ? s.icon + ' ' : ''}${s.name}${rawInput.trim() ? '：' + rawInput.trim() : ''}`);
+    stream(prompt, sid, skillRunLabel(s, rawInput, t.skillLabelSep));
   };
 
   const submit = () => {
